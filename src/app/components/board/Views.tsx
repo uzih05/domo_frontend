@@ -2,8 +2,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Task } from '../../types/index';
-import { getStickyStyle } from '../../lib/canvasUtils';
+import { Task } from '../../types';
+import { getStickyStyle } from '../../lib/canvasUtils.ts';
 import { 
   Settings, Sun, Moon, Bell, Shield, ChevronRight, Mail, LogOut, StretchHorizontal, ChevronLeft 
 } from 'lucide-react';

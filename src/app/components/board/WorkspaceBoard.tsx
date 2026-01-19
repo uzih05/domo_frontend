@@ -1,13 +1,12 @@
-
 'use client';
 
 import React, { useState } from 'react';
-import { Project } from '../../types/index';
-import { Task, Connection, Board, Group, ViewMode } from '../../types/index';
-import { BoardCanvas } from './BoardCanvas';
-import { CalendarView, TimelineView, SettingsView } from './Views';
-import { TaskDetailModal } from './TaskDetailModal';
-import { Mascot } from './Mascot';
+import { Project } from '../../types';
+import { Task, Connection, Board, Group, ViewMode } from '../../types';
+import { BoardCanvas } from './BoardCanvas.tsx';
+import { CalendarView, TimelineView, SettingsView } from './Views.tsx';
+import { TaskDetailModal } from '../ui/TaskDetailModal.tsx';
+import { Mascot } from '../ui/Mascot.tsx';
 import {
     Trello, Calendar as CalendarIcon, StretchHorizontal, Settings,
     ChevronLeft, ChevronRight, Sun, Moon, ArrowLeft, Grid

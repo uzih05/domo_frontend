@@ -2,8 +2,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { getMyProjects, logout } from '../../lib/api/index';
-import type { Project, AuthUser } from '../../types/index';
+import { getMyProjects, logout } from '../../lib/api';
+import type { Project, AuthUser } from '../../types';
 import { 
   LogOut, 
   Plus, 
@@ -15,7 +15,7 @@ import {
   Grid,
   LayoutGrid
 } from 'lucide-react';
-import { Mascot } from './Mascot';
+import { Mascot } from './Mascot.tsx';
 
 interface ProjectSelectProps {
   user: AuthUser;

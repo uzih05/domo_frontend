@@ -1,13 +1,11 @@
-
 import type {
-  User,
   Member,
   Workspace,
   Project,
-  Node,
-  Connection,
   Task,
+  Connection,
   EditingCard,
+  User,
 } from '../../types';
 
 // ============================================
@@ -143,16 +141,18 @@ export const MOCK_PROJECTS: Project[] = [
 ];
 
 // ============================================
-// 보드/노드 관련 목업 데이터
+// 보드/태스크 관련 목업 데이터
 // ============================================
 
-export const MOCK_NODES: Node[] = [
+// Task 타입에 맞춘 목업 데이터 (boardId: number, x/y 필수)
+export const MOCK_TASKS: Task[] = [
   {
     id: 1,
     title: '기획서 작성',
     status: 'done',
     x: 100,
     y: 100,
+    boardId: 1,
     assignees: [{ id: 1, name: '김도모', avatar: null }],
   },
   {
@@ -161,6 +161,7 @@ export const MOCK_NODES: Node[] = [
     status: 'in-progress',
     x: 350,
     y: 80,
+    boardId: 1,
     assignees: [{ id: 2, name: '이협업', avatar: null }],
   },
   {
@@ -169,6 +170,7 @@ export const MOCK_NODES: Node[] = [
     status: 'in-progress',
     x: 350,
     y: 220,
+    boardId: 1,
     assignees: [{ id: 3, name: '박개발', avatar: null }],
   },
   {
@@ -177,6 +179,7 @@ export const MOCK_NODES: Node[] = [
     status: 'todo',
     x: 600,
     y: 150,
+    boardId: 1,
     assignees: [
       { id: 1, name: '김도모', avatar: null },
       { id: 2, name: '이협업', avatar: null },
@@ -188,35 +191,53 @@ export const MOCK_NODES: Node[] = [
     status: 'todo',
     x: 850,
     y: 150,
+    boardId: 1,
     assignees: [],
   },
   {
-    id: 999, // ID는 겹치지 않게
+    id: 6,
     title: '프로젝트 시작',
     status: 'todo',
     x: 100,
-    y: 300, // 위치 겹치지 않게 조정
-    boardId: 'board-1',
+    y: 300,
+    boardId: 1,
     description: 'DOMO 협업 플랫폼에 오신 것을 환영합니다!',
     assignees: [],
-  }
+  },
 ];
 
+// 기존 MOCK_NODES는 MOCK_TASKS로 대체 (하위 호환용 export)
+export const MOCK_NODES = MOCK_TASKS;
+
 export const MOCK_CONNECTIONS: Connection[] = [
-  { id: 1, from: 1, to: 2 },
-  { id: 2, from: 1, to: 3 },
-  { id: 3, from: 2, to: 4 },
-  { id: 4, from: 3, to: 4 },
-  { id: 5, from: 4, to: 5 },
+  { id: 1, from: 1, to: 2, boardId: 1 },
+  { id: 2, from: 1, to: 3, boardId: 1 },
+  { id: 3, from: 2, to: 4, boardId: 1 },
+  { id: 4, from: 3, to: 4, boardId: 1 },
+  { id: 5, from: 4, to: 5, boardId: 1 },
 ];
 
 // ============================================
-// 태스크 관련 목업 데이터
+// 기타 목업 데이터
 // ============================================
 
 export const MOCK_TODAY_TASKS: Task[] = [
-  { id: '1', title: 'UI 디자인 완료', project: 'Domo 협업 플랫폼', dueTime: '오후 6시', status: 'todo' },
-  { id: '2', title: 'API 연동 테스트', project: 'Domo 협업 플랫폼', dueTime: '오후 11시', status: 'todo' },
+  {
+    id: 101,
+    title: 'UI 디자인 완료',
+    status: 'todo',
+    x: 0,
+    y: 0,
+    boardId: 1,
+  },
+  {
+    id: 102,
+    title: 'API 연동 테스트',
+    status: 'todo',
+    x: 0,
+    y: 0,
+    boardId: 1,
+  },
 ];
 
 export const MOCK_EDITING_CARDS: EditingCard[] = [

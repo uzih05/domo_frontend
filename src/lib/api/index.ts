@@ -21,12 +21,12 @@ export {
   getProjectMembers,
 } from './workspace';
 
-// 보드/노드 API
+// 보드/태스크 API
 export {
-  getNodes,
-  createNode,
-  updateNode,
-  deleteNode,
+  getTasks,
+  createTask,
+  updateTask,
+  deleteTask,
   getConnections,
   createConnection,
   deleteConnection,
@@ -34,6 +34,11 @@ export {
   getEditingCards,
   startEditingCard,
   stopEditingCard,
+  // 하위 호환용
+  getNodes,
+  createNode,
+  updateNode,
+  deleteNode,
 } from './board';
 
 // 목업 데이터 (개발용)

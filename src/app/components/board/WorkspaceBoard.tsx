@@ -1,14 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Project, Task, Connection, Board, Group, ViewMode } from '@/src/types'; // 타입 경로는 프로젝트 설정에 따름 (에러나면 ../../types 로 수정)
+import { Project, Task, Connection, Board, Group, ViewMode } from '@/src/types';
 import { BoardCanvas } from './BoardCanvas';
 import { CalendarView, TimelineView, SettingsView } from './Views';
 import { TaskDetailModal } from '../ui/TaskDetailModal';
 import { Mascot } from '../ui/Mascot';
 
-// [수정] 상대 경로로 API 데이터와 유틸리티 불러오기
-import { MOCK_NODES, MOCK_CONNECTIONS } from '@/src/lib/api';
+import { MOCK_TASKS, MOCK_CONNECTIONS } from '@/src/lib/api';
 
 import {
     Trello, Calendar as CalendarIcon, StretchHorizontal, Settings,
@@ -21,12 +20,8 @@ interface WorkspaceBoardProps {
 }
 
 export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack }) => {
-    // [수정] 하드코딩 제거하고 MOCK_NODES 연동 (타입 호환을 위해 변환)
-    const [tasks, setTasks] = useState<Task[]>(MOCK_NODES as unknown as Task[]);
-
-    // [수정] MOCK_CONNECTIONS 연동
+    const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
     const [connections, setConnections] = useState<Connection[]>(MOCK_CONNECTIONS);
-
     const [boards, setBoards] = useState<Board[]>([{ id: 1, title: '메인 보드' }]);
     const [activeBoardId, setActiveBoardId] = useState<number>(1);
     const [groups, setGroups] = useState<Group[]>([]);
@@ -37,7 +32,7 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
 
     const handleBoardTasksUpdate = (boardTasks: Task[]) => {
         setTasks(prev => {
-            const other = prev.filter(t => String(t.boardId) !== String(activeBoardId));
+            const other = prev.filter(t => t.boardId !== activeBoardId);
             return [...other, ...boardTasks];
         });
     };
@@ -117,36 +112,34 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
                 <div className="bg-white/40 dark:bg-black/40 backdrop-blur-3xl rounded-[2rem] border border-white/20 dark:border-white/5 shadow-inner h-full overflow-hidden relative">
                     {viewMode === 'board' && (
                         <BoardCanvas
-                            tasks={tasks.filter(t => String(t.boardId) === String(activeBoardId))}
-                            connections={connections.filter(c => String(c.boardId) === String(activeBoardId))}
+                            tasks={tasks.filter(t => t.boardId === activeBoardId)}
+                            connections={connections.filter(c => c.boardId === activeBoardId)}
                             onTasksUpdate={handleBoardTasksUpdate}
                             onTaskSelect={setSelectedTask}
-                            onConnectionCreate={(from, to) => setConnections([...connections, { id: Date.now(), from, to, boardId: String(activeBoardId), style: 'solid', shape: 'bezier' }])}
-                            onConnectionDelete={(id) => setConnections(connections.filter(c => String(c.id) !== String(id)))}
-                            onConnectionUpdate={(id, updates) => setConnections(connections.map(c => String(c.id) === String(id) ? { ...c, ...updates } : c))}
+                            onConnectionCreate={(from, to) => setConnections([...connections, {
+                                id: Date.now(),
+                                from,
+                                to,
+                                boardId: activeBoardId,
+                                style: 'solid',
+                                shape: 'bezier'
+                            }])}
+                            onConnectionDelete={(id) => setConnections(connections.filter(c => c.id !== id))}
+                            onConnectionUpdate={(id, updates) => setConnections(connections.map(c => c.id === id ? { ...c, ...updates } : c))}
                             boards={boards}
-
-                            // 자식에게 넘길 때는 String으로 변환 (자식 props 타입에 맞춤)
-                            activeBoardId={String(activeBoardId)}
-
-                            // 자식에서 받은 ID(문자)를 숫자(상태)로 변환
-                            onSwitchBoard={(id) => setActiveBoardId(Number(id))}
-
-                            // 새 보드 ID는 숫자(Date.now())로 생성해야 Board 타입과 일치함
+                            activeBoardId={activeBoardId}
+                            onSwitchBoard={setActiveBoardId}
                             onAddBoard={(name) => {
-                                const newId = Date.now(); // .toString() 제거 (숫자로 유지)
+                                const newId = Date.now();
                                 setBoards([...boards, { id: newId, title: name }]);
                                 setActiveBoardId(newId);
                             }}
-
-                            // ID 비교 시 숫자로 변환
-                            onRenameBoard={(id, name) => setBoards(boards.map(b => b.id === Number(id) ? { ...b, title: name } : b))}
-
+                            onRenameBoard={(id, name) => setBoards(boards.map(b => b.id === id ? { ...b, title: name } : b))}
                             snapToGrid={snapToGrid}
-                            groups={groups.filter(g => String(g.boardId) === String(activeBoardId))}
+                            groups={groups.filter(g => g.boardId === activeBoardId)}
                             onGroupsUpdate={(updatedGroups) => {
                                 setGroups(prev => {
-                                    const otherGroups = prev.filter(g => String(g.boardId) !== String(activeBoardId));
+                                    const otherGroups = prev.filter(g => g.boardId !== activeBoardId);
                                     return [...otherGroups, ...updatedGroups];
                                 });
                             }}

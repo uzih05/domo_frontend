@@ -13,14 +13,14 @@ interface BoardCanvasProps {
     connections: Connection[];
     onTasksUpdate: (tasks: Task[]) => void;
     onTaskSelect: (task: Task) => void;
-    onConnectionCreate: (from: string, to: string) => void;
-    onConnectionDelete: (id: string) => void;
-    onConnectionUpdate: (id: string, updates: Partial<Connection>) => void;
+    onConnectionCreate: (from: number, to: number) => void;
+    onConnectionDelete: (id: number) => void;
+    onConnectionUpdate: (id: number, updates: Partial<Connection>) => void;
     boards: Board[];
-    activeBoardId: string;
-    onSwitchBoard: (id: string) => void;
+    activeBoardId: number;
+    onSwitchBoard: (id: number) => void;
     onAddBoard: (name: string) => void;
-    onRenameBoard: (id: string, name: string) => void;
+    onRenameBoard: (id: number, name: string) => void;
     snapToGrid: boolean;
     groups: Group[];
     onGroupsUpdate: (groups: Group[]) => void;
@@ -35,27 +35,26 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     const boardSelectorRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const taskFileInputRef = useRef<HTMLInputElement>(null);
-    const [activeTaskForFile, setActiveTaskForFile] = useState<string | null>(null);
+    const [activeTaskForFile, setActiveTaskForFile] = useState<number | null>(null);
 
     const mousePosRef = useRef({ x: 0, y: 0 });
     const [lines, setLines] = useState<React.ReactElement[]>([]);
     const [svgSize, setSvgSize] = useState({ width: 0, height: 0 });
-    const [dragState, setDragState] = useState<{ id: string, startX: number, startY: number, initialTaskX: number, initialTaskY: number } | null>(null);
-    const [groupDragState, setGroupDragState] = useState<{ id: string, startX: number, startY: number, initialGroupX: number, initialGroupY: number, containedTaskIds: { id: string, initialX: number, initialY: number }[] } | null>(null);
-    const [connectionDraft, setConnectionDraft] = useState<{ fromId: string, startX: number, startY: number, currX: number, currY: number } | null>(null);
-    const [activeMenu, setActiveMenu] = useState<{ id: string, x: number, y: number } | null>(null);
-    const [backgroundMenu, setBackgroundMenu] = useState<{ x: number, y: number, taskX: number, taskY: number, targetTaskId?: string } | null>(null);
+    const [dragState, setDragState] = useState<{ id: number, startX: number, startY: number, initialTaskX: number, initialTaskY: number } | null>(null);
+    const [groupDragState, setGroupDragState] = useState<{ id: number, startX: number, startY: number, initialGroupX: number, initialGroupY: number, containedTaskIds: { id: number, initialX: number, initialY: number }[] } | null>(null);
+    const [connectionDraft, setConnectionDraft] = useState<{ fromId: number, startX: number, startY: number, currX: number, currY: number } | null>(null);
+    const [activeMenu, setActiveMenu] = useState<{ id: number, x: number, y: number } | null>(null);
+    const [backgroundMenu, setBackgroundMenu] = useState<{ x: number, y: number, taskX: number, taskY: number, targetTaskId?: number } | null>(null);
     const [selectionBox, setSelectionBox] = useState<{ startX: number, startY: number, currX: number, currY: number } | null>(null);
-    const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
-    const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+    const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(new Set());
+    const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
     const [editingGroupTitle, setEditingGroupTitle] = useState('');
     const [showBoardMenu, setShowBoardMenu] = useState(false);
     const [isCreatingBoard, setIsCreatingBoard] = useState(false);
     const [newBoardName, setNewBoardName] = useState('');
-    const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
+    const [editingBoardId, setEditingBoardId] = useState<number | null>(null);
     const [editBoardName, setEditBoardName] = useState('');
 
-    // showBoardMenu가 false가 될 때 상태 초기화 (useEffect 내 setState를 별도 함수로 분리)
     const resetBoardMenuState = useCallback(() => {
         setIsCreatingBoard(false);
         setNewBoardName('');
@@ -95,11 +94,10 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                     const cp2x = endX - dist * 0.5;
                     pathString = `M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${endY}, ${endX} ${endY}`;
                 }
-                const connIdStr = String(conn.id);
-                const isSelected = activeMenu?.id === connIdStr;
+                const isSelected = activeMenu?.id === conn.id;
                 newLines.push(
                     <g key={conn.id} className="group/line">
-                        <path d={pathString} fill="none" stroke="transparent" strokeWidth="20" strokeLinecap="round" className="cursor-pointer pointer-events-auto" onDoubleClick={(evt) => { evt.stopPropagation(); const rect = container.getBoundingClientRect(); setActiveMenu({ id: connIdStr, x: evt.clientX - rect.left + container.scrollLeft, y: evt.clientY - rect.top + container.scrollTop }); setBackgroundMenu(null); }} onContextMenu={(evt) => { evt.preventDefault(); evt.stopPropagation(); const rect = container.getBoundingClientRect(); setActiveMenu({ id: connIdStr, x: evt.clientX - rect.left + container.scrollLeft, y: evt.clientY - rect.top + container.scrollTop }); setBackgroundMenu(null); }} />
+                        <path d={pathString} fill="none" stroke="transparent" strokeWidth="20" strokeLinecap="round" className="cursor-pointer pointer-events-auto" onDoubleClick={(evt) => { evt.stopPropagation(); const rect = container.getBoundingClientRect(); setActiveMenu({ id: conn.id, x: evt.clientX - rect.left + container.scrollLeft, y: evt.clientY - rect.top + container.scrollTop }); setBackgroundMenu(null); }} onContextMenu={(evt) => { evt.preventDefault(); evt.stopPropagation(); const rect = container.getBoundingClientRect(); setActiveMenu({ id: conn.id, x: evt.clientX - rect.left + container.scrollLeft, y: evt.clientY - rect.top + container.scrollTop }); setBackgroundMenu(null); }} />
                         <path d={pathString} fill="none" stroke={isSelected ? "#0a84ff" : "rgba(128,128,128,0.4)"} strokeWidth="2" strokeLinecap="round" strokeDasharray={conn.style === 'dashed' ? "8,4" : "none"} className="transition-all duration-300 pointer-events-none group-hover/line:stroke-blue-400 group-hover/line:stroke-[3px]" />
                         <circle cx={startX} cy={startY} r="3" fill="rgba(128,128,128,0.5)" className="pointer-events-none group-hover/line:fill-blue-400" />
                         <path d={`M ${endX} ${endY} L ${endX - 8} ${endY - 4} L ${endX - 8} ${endY + 4} Z`} fill="rgba(128,128,128,0.5)" className="pointer-events-none group-hover/line:fill-blue-400" />
@@ -134,7 +132,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
 
             if (key === 'c' && selectedTaskIds.size > 0) {
                 evt.preventDefault();
-                const selectedTasks = tasks.filter(t => selectedTaskIds.has(String(t.id)));
+                const selectedTasks = tasks.filter(t => selectedTaskIds.has(t.id));
                 if (selectedTasks.length === 0) return;
                 let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
                 selectedTasks.forEach(t => {
@@ -148,7 +146,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                     maxY = Math.max(maxY, ty + tHeight);
                 });
                 const padding = 40;
-                const newGroup: Group = { id: `group-${Date.now()}`, title: 'Group', x: minX - padding, y: minY - padding, width: maxX - minX + (padding * 2), height: maxY - minY + (padding * 2), boardId: activeBoardId };
+                const newGroup: Group = { id: Date.now(), title: 'Group', x: minX - padding, y: minY - padding, width: maxX - minX + (padding * 2), height: maxY - minY + (padding * 2), boardId: activeBoardId };
                 onGroupsUpdate([...groups, newGroup]);
                 setSelectedTaskIds(new Set());
             }
@@ -156,7 +154,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             if (key === 'n') {
                 evt.preventDefault();
                 const newTask: Task = {
-                    id: Date.now().toString(),
+                    id: Date.now(),
                     title: "새로운 카드",
                     status: "todo",
                     x: mousePosRef.current.x - 140,
@@ -214,9 +212,9 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 const tx = t.x || 0;
                 const ty = t.y || 0;
                 return tx >= group.x && tx <= group.x + group.width && ty >= group.y && ty <= group.y + group.height;
-            }).map(t => ({ id: String(t.id), initialX: t.x || 0, initialY: t.y || 0 }));
+            }).map(t => ({ id: t.id, initialX: t.x || 0, initialY: t.y || 0 }));
             setGroupDragState({
-                id: String(group.id),
+                id: group.id,
                 startX: e.clientX,
                 startY: e.clientY,
                 initialGroupX: group.x,
@@ -229,7 +227,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
         }
         if (task) {
             (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-            setDragState({ id: String(task.id), startX: e.clientX, startY: e.clientY, initialTaskX: task.x || 0, initialTaskY: task.y || 0 });
+            setDragState({ id: task.id, startX: e.clientX, startY: e.clientY, initialTaskX: task.x || 0, initialTaskY: task.y || 0 });
             e.stopPropagation();
             setActiveMenu(null);
             setBackgroundMenu(null);
@@ -238,7 +236,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
         setBackgroundMenu(null);
     };
 
-    const handleConnectStart = (taskId: string, e: React.PointerEvent) => {
+    const handleConnectStart = (taskId: number, e: React.PointerEvent) => {
         if (!containerRef.current) return;
         const container = containerRef.current;
         const rect = container.getBoundingClientRect();
@@ -249,7 +247,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
         setBackgroundMenu(null);
     };
 
-    const handleConnectEnd = (targetId: string) => {
+    const handleConnectEnd = (targetId: number) => {
         if (connectionDraft && connectionDraft.fromId !== targetId) {
             onConnectionCreate(connectionDraft.fromId, targetId);
         }
@@ -271,14 +269,14 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             const boxStartY = Math.min(selectionBox.startY, y);
             const boxEndX = Math.max(selectionBox.startX, x);
             const boxEndY = Math.max(selectionBox.startY, y);
-            const newSelectedIds = new Set<string>();
+            const newSelectedIds = new Set<number>();
             tasks.forEach(t => {
                 const tx = t.x || 0;
                 const ty = t.y || 0;
                 const tw = 280;
                 const th = 100;
                 if (tx < boxEndX && tx + tw > boxStartX && ty < boxEndY && ty + th > boxStartY) {
-                    newSelectedIds.add(String(t.id));
+                    newSelectedIds.add(t.id);
                 }
             });
             setSelectedTaskIds(newSelectedIds);
@@ -300,7 +298,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 const effectiveDeltaY = newGroupY - groupDragState.initialGroupY;
 
                 const updatedTasks = tasks.map(t => {
-                    const c = groupDragState.containedTaskIds.find(item => item.id === String(t.id));
+                    const c = groupDragState.containedTaskIds.find(item => item.id === t.id);
                     if (c) {
                         return { ...t, x: c.initialX + effectiveDeltaX, y: c.initialY + effectiveDeltaY };
                     }
@@ -319,7 +317,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 newY = Math.round(newY / 20) * 20;
             }
 
-            const updatedTasks = tasks.map(t => String(t.id) === dragState.id ? { ...t, x: newX, y: newY } : t);
+            const updatedTasks = tasks.map(t => t.id === dragState.id ? { ...t, x: newX, y: newY } : t);
             onTasksUpdate(updatedTasks);
         } else if (connectionDraft) {
             setConnectionDraft(prev => prev ? { ...prev, currX: x, currY: y } : null);
@@ -342,7 +340,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
         const y = e.clientY - rect.top + container.scrollTop;
 
         const taskEl = (e.target as HTMLElement).closest('[id^="task-"]');
-        const targetTaskId = taskEl ? taskEl.id.replace('task-', '') : undefined;
+        const targetTaskId = taskEl ? parseInt(taskEl.id.replace('task-', ''), 10) : undefined;
 
         setActiveMenu(null);
 
@@ -358,7 +356,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     const handleCreateTaskFromMenu = () => {
         if (!backgroundMenu) return;
         const newTask: Task = {
-            id: Date.now().toString(),
+            id: Date.now(),
             title: "새로운 카드",
             status: "todo",
             x: backgroundMenu.taskX,
@@ -371,7 +369,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
         setBackgroundMenu(null);
     };
 
-    const getConnectionById = (id: string) => connections.find(c => String(c.id) === id);
+    const getConnectionById = (id: number) => connections.find(c => c.id === id);
 
     const handleGlobalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -389,7 +387,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             const isFolder = taskFiles.length > 1;
 
             const newTask: Task = {
-                id: Date.now().toString(),
+                id: Date.now(),
                 title: isFolder ? "새 폴더" : taskFiles[0].name,
                 status: 'todo',
                 description: isFolder ? `${taskFiles.length}개의 파일` : `Type: ${taskFiles[0].type}\nSize: ${(taskFiles[0].size / 1024).toFixed(1)} KB`,
@@ -416,7 +414,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 type: f.type
             }));
 
-            const task = tasks.find(t => String(t.id) === activeTaskForFile);
+            const task = tasks.find(t => t.id === activeTaskForFile);
             if (task) {
                 const updatedTask: Task = {
                     ...task,
@@ -461,14 +459,14 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                                                     onClick={(evt) => evt.stopPropagation()}
                                                     onKeyDown={(evt) => {
                                                         if (evt.key === 'Enter') {
-                                                            if (editBoardName.trim()) onRenameBoard(String(board.id), editBoardName.trim());
+                                                            if (editBoardName.trim()) onRenameBoard(board.id, editBoardName.trim());
                                                             setEditingBoardId(null);
                                                         }
                                                     }}
                                                 />
                                                 <button onClick={(evt) => {
                                                     evt.stopPropagation();
-                                                    if (editBoardName.trim()) onRenameBoard(String(board.id), editBoardName.trim());
+                                                    if (editBoardName.trim()) onRenameBoard(board.id, editBoardName.trim());
                                                     setEditingBoardId(null);
                                                 }}>
                                                     <Check size={14} className="text-green-500" />
@@ -479,7 +477,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                                             <button
                                                 onClick={(evt) => {
                                                     evt.stopPropagation();
-                                                    onSwitchBoard(String(board.id));
+                                                    onSwitchBoard(board.id);
                                                     setShowBoardMenu(false);
                                                 }}
                                                 className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-black/5 dark:hover:bg-white/10 rounded-xl text-sm text-gray-700 dark:text-gray-200 transition-colors group"
@@ -491,7 +489,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                                                         className="p-1 hover:bg-black/5 dark:hover:bg-white/10 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                                                         onClick={(evt) => {
                                                             evt.stopPropagation();
-                                                            setEditingBoardId(String(board.id));
+                                                            setEditingBoardId(board.id);
                                                             setEditBoardName(board.title);
                                                         }}
                                                     >
@@ -602,7 +600,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-bold text-sm cursor-text px-3 py-1.5 hover:bg-white/50 dark:hover:bg-white/10 rounded-xl transition-colors backdrop-blur-md" onClick={() => {
-                                    setEditingGroupId(String(group.id));
+                                    setEditingGroupId(group.id);
                                     setEditingGroupTitle(group.title);
                                 }}><Layers size={16} />{group.title}</div>
                             )}
@@ -615,7 +613,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                         task={task}
                         variant="sticky"
                         style={{ position: 'absolute', left: task.x || 0, top: task.y || 0 }}
-                        isSelected={selectedTaskIds.has(String(task.id))}
+                        isSelected={selectedTaskIds.has(task.id)}
                         onPointerDown={(evt) => handlePointerDown(evt, task)}
                         onClick={() => onTaskSelect(task)}
                         onConnectStart={handleConnectStart}
@@ -650,7 +648,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                         {backgroundMenu.targetTaskId && (
                             <button
                                 onClick={() => {
-                                    onTasksUpdate(tasks.filter(t => String(t.id) !== backgroundMenu.targetTaskId));
+                                    onTasksUpdate(tasks.filter(t => t.id !== backgroundMenu.targetTaskId));
                                     setBackgroundMenu(null);
                                 }}
                                 className="flex items-center gap-3 px-4 py-3 text-xs hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 dark:text-red-400 w-full text-left font-medium"

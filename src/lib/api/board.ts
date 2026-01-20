@@ -1,82 +1,98 @@
-
-import type { Node, Connection, Member, EditingCard } from '../../types';
+import type { Task, Connection, Member, EditingCard } from '../../types';
 import { API_CONFIG, apiFetch, mockDelay } from './config';
 import {
-  MOCK_NODES,
+  MOCK_TASKS,
   MOCK_CONNECTIONS,
   MOCK_MEMBERS,
   MOCK_EDITING_CARDS,
 } from './mock-data';
 
 // ============================================
-// 노드 API
+// 태스크(카드) API
 // ============================================
 
 /**
- * 프로젝트의 노드 목록 조회
+ * 프로젝트의 태스크 목록 조회
  */
-export async function getNodes(projectId: number): Promise<Node[]> {
+export async function getTasks(projectId: number): Promise<Task[]> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(300);
-    return MOCK_NODES;
+    return MOCK_TASKS.filter(t => t.boardId === projectId || projectId === 1);
   }
 
-  return apiFetch<Node[]>(`/projects/${projectId}/nodes`);
+  // 실제 API: 프로젝트의 보드 데이터 조회 후 카드 추출
+  const response = await apiFetch<{ column: unknown; cards: Task[] }[]>(
+      `/projects/${projectId}/board`
+  );
+  return response.flatMap(col => col.cards);
 }
 
 /**
- * 노드 생성
+ * 태스크 생성
  */
-export async function createNode(
-  projectId: number,
-  node: Omit<Node, 'id'>
-): Promise<Node> {
+export async function createTask(
+    columnId: number,
+    task: Omit<Task, 'id'>
+): Promise<Task> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(200);
     return {
-      ...node,
+      ...task,
       id: Date.now(),
     };
   }
 
-  return apiFetch<Node>(`/projects/${projectId}/nodes`, {
+  return apiFetch<Task>(`/columns/${columnId}/cards`, {
     method: 'POST',
-    body: JSON.stringify(node),
+    body: JSON.stringify({
+      title: task.title,
+      content: task.content || task.description,
+      x: task.x,
+      y: task.y,
+      assignee_ids: task.assignees?.map(a => a.id) || [],
+    }),
   });
 }
 
 /**
- * 노드 수정
+ * 태스크 수정
  */
-export async function updateNode(
-  nodeId: number,
-  updates: Partial<Node>
-): Promise<Node> {
+export async function updateTask(
+    taskId: number,
+    updates: Partial<Task>
+): Promise<Task> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(200);
-    const node = MOCK_NODES.find(n => n.id === nodeId);
-    if (!node) {
-      throw new Error('노드를 찾을 수 없습니다.');
+    const task = MOCK_TASKS.find(t => t.id === taskId);
+    if (!task) {
+      throw new Error('태스크를 찾을 수 없습니다.');
     }
-    return { ...node, ...updates };
+    return { ...task, ...updates };
   }
 
-  return apiFetch<Node>(`/nodes/${nodeId}`, {
+  return apiFetch<Task>(`/cards/${taskId}`, {
     method: 'PATCH',
-    body: JSON.stringify(updates),
+    body: JSON.stringify({
+      title: updates.title,
+      content: updates.content || updates.description,
+      x: updates.x,
+      y: updates.y,
+      column_id: updates.column_id,
+      assignee_ids: updates.assignees?.map(a => a.id),
+    }),
   });
 }
 
 /**
- * 노드 삭제
+ * 태스크 삭제
  */
-export async function deleteNode(nodeId: number): Promise<void> {
+export async function deleteTask(taskId: number): Promise<void> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(200);
     return;
   }
 
-  await apiFetch<void>(`/nodes/${nodeId}`, {
+  await apiFetch<void>(`/cards/${taskId}`, {
     method: 'DELETE',
   });
 }
@@ -91,7 +107,7 @@ export async function deleteNode(nodeId: number): Promise<void> {
 export async function getConnections(projectId: number): Promise<Connection[]> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(200);
-    return MOCK_CONNECTIONS;
+    return MOCK_CONNECTIONS.filter(c => c.boardId === projectId || projectId === 1);
   }
 
   return apiFetch<Connection[]>(`/projects/${projectId}/connections`);
@@ -101,12 +117,15 @@ export async function getConnections(projectId: number): Promise<Connection[]> {
  * 연결선 생성
  */
 export async function createConnection(
-  projectId: number,
-  connection: Connection
+    projectId: number,
+    connection: Omit<Connection, 'id'>
 ): Promise<Connection> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(200);
-    return connection;
+    return {
+      ...connection,
+      id: Date.now(),
+    };
   }
 
   return apiFetch<Connection>(`/projects/${projectId}/connections`, {
@@ -119,19 +138,21 @@ export async function createConnection(
  * 연결선 삭제
  */
 export async function deleteConnection(
-  projectId: number,
-  from: number,
-  to: number
+    projectId: number,
+    connectionId: number
 ): Promise<void> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(200);
     return;
   }
 
-  await apiFetch<void>(`/projects/${projectId}/connections`, {
-    method: 'DELETE',
-    body: JSON.stringify({ from, to }),
-  });
+  const conn = MOCK_CONNECTIONS.find(c => c.id === connectionId);
+  if (conn) {
+    await apiFetch<void>(`/projects/${projectId}/connections`, {
+      method: 'DELETE',
+      body: JSON.stringify({ from: conn.from, to: conn.to }),
+    });
+  }
 }
 
 // ============================================
@@ -193,3 +214,12 @@ export async function stopEditingCard(cardId: number): Promise<void> {
     method: 'DELETE',
   });
 }
+
+// ============================================
+// 하위 호환용 (기존 코드에서 사용하던 함수명)
+// ============================================
+
+export const getNodes = getTasks;
+export const createNode = createTask;
+export const updateNode = updateTask;
+export const deleteNode = deleteTask;

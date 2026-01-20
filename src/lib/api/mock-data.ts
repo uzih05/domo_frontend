@@ -144,7 +144,6 @@ export const MOCK_PROJECTS: Project[] = [
 // 보드/태스크 관련 목업 데이터
 // ============================================
 
-// Task 타입에 맞춘 목업 데이터 (boardId: number, x/y 필수)
 export const MOCK_TASKS: Task[] = [
   {
     id: 1,
@@ -206,7 +205,6 @@ export const MOCK_TASKS: Task[] = [
   },
 ];
 
-// 기존 MOCK_NODES는 MOCK_TASKS로 대체 (하위 호환용 export)
 export const MOCK_NODES = MOCK_TASKS;
 
 export const MOCK_CONNECTIONS: Connection[] = [

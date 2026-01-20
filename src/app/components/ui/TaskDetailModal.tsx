@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Task, Comment, Tag as TagType } from '../../../types';
 import { STICKY_COLORS, getStickyStyle } from '../../../lib/utils/canvas';
+import { createCardComment, getCardComments, deleteCardComment } from '../../../lib/api';
 import {
     CreditCard, Palette, X, Briefcase, FileText, StickyNote, AlignLeft,
-    Paperclip, Download, List, Bookmark, Tag, Clock, Plus, CheckSquare, ChevronRight
+    Paperclip, Download, List, Bookmark, Tag, Clock, Plus, CheckSquare, ChevronRight, Loader2, Trash2
 } from 'lucide-react';
 
 interface TaskDetailModalProps {
@@ -13,6 +14,7 @@ interface TaskDetailModalProps {
     onClose: () => void;
     onUpdate: (task: Task) => void;
     currentUser: string;
+    currentUserId?: number; // 댓글 삭제 권한 체크용
 }
 
 // task.time 파싱 헬퍼 함수 (컴포넌트 외부에 정의)
@@ -28,7 +30,7 @@ function parseTaskTime(time: string | undefined): { start: string; end: string }
     return { start: '', end: '' };
 }
 
-export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose, onUpdate, currentUser }) => {
+export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose, onUpdate, currentUser, currentUserId }) => {
     // 초기값을 useMemo로 계산 (useEffect 내 setState 제거)
     const initialDates = useMemo(() => parseTaskTime(task.time), [task.time]);
 
@@ -44,6 +46,12 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose,
     const [endDate, setEndDate] = useState(initialDates.end);
     const [isSettingType, setIsSettingType] = useState(false);
 
+    // 댓글 관련 상태 추가
+    const [comments, setComments] = useState<Comment[]>(task.comments || []);
+    const [isLoadingComments, setIsLoadingComments] = useState(false);
+    const [isSavingComment, setIsSavingComment] = useState(false);
+    const [deletingCommentId, setDeletingCommentId] = useState<number | null>(null);
+
     // task가 변경될 때 상태 동기화 (useCallback으로 분리)
     const syncTaskState = useCallback(() => {
         setDesc(task.description || '');
@@ -51,12 +59,35 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose,
         const dates = parseTaskTime(task.time);
         setStartDate(dates.start);
         setEndDate(dates.end);
-    }, [task.description, task.title, task.time]);
+        setComments(task.comments || []);
+    }, [task.description, task.title, task.time, task.comments]);
 
     // task.id가 변경될 때만 동기화 (다른 task로 전환 시)
     useEffect(() => {
         syncTaskState();
     }, [task.id, syncTaskState]);
+
+    // 댓글 목록 로드 (API 연결)
+    useEffect(() => {
+        const loadComments = async () => {
+            if (!task.id) return;
+
+            setIsLoadingComments(true);
+            try {
+                const loadedComments = await getCardComments(task.id);
+                setComments(loadedComments);
+                // 부모 컴포넌트에도 업데이트
+                onUpdate({ ...task, comments: loadedComments });
+            } catch (error) {
+                console.error('Failed to load comments:', error);
+                // 실패 시 기존 comments 유지
+            } finally {
+                setIsLoadingComments(false);
+            }
+        };
+
+        loadComments();
+    }, [task.id]); // task.id가 변경될 때만 로드
 
     // ESC 키 핸들러
     useEffect(() => {
@@ -80,19 +111,75 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose,
         }
     };
 
-    const handleAddComment = () => {
-        if (!commentText.trim()) return;
-        const newComment: Comment = {
-            id: Date.now(),  // number 타입
+    // 댓글 추가 (API 연결)
+    const handleAddComment = async () => {
+        if (!commentText.trim() || isSavingComment) return;
+
+        setIsSavingComment(true);
+
+        // 낙관적 UI 업데이트
+        const tempComment: Comment = {
+            id: Date.now(), // 임시 ID
             user: currentUser,
+            user_id: currentUserId,
             text: commentText,
             timestamp: '방금 전'
         };
-        onUpdate({
-            ...task,
-            comments: [newComment, ...(task.comments || [])]
-        });
+
+        const previousComments = [...comments];
+        setComments([tempComment, ...comments]);
         setCommentText('');
+
+        try {
+            // API 호출
+            const savedComment = await createCardComment(task.id, commentText);
+
+            // 저장된 댓글로 교체
+            setComments(prev =>
+                prev.map(c => c.id === tempComment.id ? savedComment : c)
+            );
+
+            // 부모 컴포넌트 업데이트
+            onUpdate({
+                ...task,
+                comments: [savedComment, ...previousComments]
+            });
+        } catch (error) {
+            console.error('Failed to save comment:', error);
+            // 실패 시 롤백
+            setComments(previousComments);
+            setCommentText(commentText); // 입력 내용 복원
+            alert('댓글 저장에 실패했습니다.');
+        } finally {
+            setIsSavingComment(false);
+        }
+    };
+
+    // 댓글 삭제 (API 연결)
+    const handleDeleteComment = async (commentId: number) => {
+        if (deletingCommentId) return;
+
+        setDeletingCommentId(commentId);
+        const previousComments = [...comments];
+
+        // 낙관적 UI 업데이트
+        setComments(prev => prev.filter(c => c.id !== commentId));
+
+        try {
+            await deleteCardComment(commentId);
+            // 부모 컴포넌트 업데이트
+            onUpdate({
+                ...task,
+                comments: previousComments.filter(c => c.id !== commentId)
+            });
+        } catch (error) {
+            console.error('Failed to delete comment:', error);
+            // 실패 시 롤백
+            setComments(previousComments);
+            alert('댓글 삭제에 실패했습니다.');
+        } finally {
+            setDeletingCommentId(null);
+        }
     };
 
     const addTag = () => {
@@ -321,7 +408,12 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose,
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-3">
                                         <List size={20} className="text-gray-500 dark:text-gray-400" />
-                                        <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-lg">활동</h3>
+                                        <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-lg">
+                                            활동
+                                            {isLoadingComments && (
+                                                <Loader2 className="inline-block ml-2 animate-spin text-gray-400" size={14} />
+                                            )}
+                                        </h3>
                                     </div>
                                     <button className="text-sm bg-gray-200 dark:bg-[#22272b] hover:bg-gray-300 dark:hover:bg-[#2c333a] px-3 py-1.5 rounded text-gray-700 dark:text-gray-300 transition-colors">자세히 보기</button>
                                 </div>
@@ -338,9 +430,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose,
                                                 onChange={(e) => setCommentText(e.target.value)}
                                                 onKeyDown={(e) => {
                                                     if (e.key === 'Enter' && !e.shiftKey) {
+                                                        e.preventDefault();
                                                         handleAddComment();
                                                     }
                                                 }}
+                                                disabled={isSavingComment}
                                             />
                                             <div className={`flex justify-between items-center px-2 py-1.5 bg-gray-50 dark:bg-[#2c333a]/50 border-t border-gray-200 dark:border-gray-700/30 transition-all duration-200 ${commentText ? 'opacity-100 max-h-10' : 'opacity-100 max-h-10'}`}>
                                                 <div className="flex gap-1">
@@ -349,9 +443,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose,
                                                 </div>
                                                 <button
                                                     onClick={handleAddComment}
-                                                    disabled={!commentText.trim()}
-                                                    className={`px-3 py-1 border border-transparent text-xs rounded font-medium transition-colors ${commentText.trim() ? 'bg-domo-primary text-white hover:bg-domo-primary-hover' : 'bg-gray-200 dark:bg-[#22272b] border-gray-300 dark:border-gray-600/50 text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
+                                                    disabled={!commentText.trim() || isSavingComment}
+                                                    className={`px-3 py-1 border border-transparent text-xs rounded font-medium transition-colors flex items-center gap-1 ${commentText.trim() && !isSavingComment ? 'bg-domo-primary text-white hover:bg-domo-primary-hover' : 'bg-gray-200 dark:bg-[#22272b] border-gray-300 dark:border-gray-600/50 text-gray-400 dark:text-gray-500 cursor-not-allowed'}`}
                                                 >
+                                                    {isSavingComment && <Loader2 className="animate-spin" size={12} />}
                                                     저장
                                                 </button>
                                             </div>
@@ -361,7 +456,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose,
 
                                 <div className="space-y-4 ml-11 relative">
                                     <div className="absolute left-[-22px] top-2 bottom-2 w-[2px] bg-gray-200 dark:bg-gray-800"></div>
-                                    {task.comments?.map((comment) => (
+                                    {comments.map((comment) => (
                                         <div key={comment.id} className="flex gap-3 group animate-in slide-in-from-left-2 duration-300">
                                             <div className="absolute left-[-26px] bg-white dark:bg-[#323940] py-1">
                                                 <div className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-600"></div>
@@ -370,6 +465,21 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose,
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <span className="font-semibold text-gray-900 dark:text-gray-100">{comment.user}</span>
                                                     <span className="text-xs text-gray-500">{comment.timestamp}</span>
+                                                    {/* 삭제 버튼 (본인 댓글만) */}
+                                                    {(comment.user_id === currentUserId || comment.user === currentUser) && (
+                                                        <button
+                                                            onClick={() => handleDeleteComment(comment.id)}
+                                                            disabled={deletingCommentId === comment.id}
+                                                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-gray-400 hover:text-red-500 transition-all"
+                                                            title="댓글 삭제"
+                                                        >
+                                                            {deletingCommentId === comment.id ? (
+                                                                <Loader2 className="animate-spin" size={12} />
+                                                            ) : (
+                                                                <Trash2 size={12} />
+                                                            )}
+                                                        </button>
+                                                    )}
                                                 </div>
                                                 <div className="bg-white dark:bg-[#22272b] p-2.5 rounded-lg text-gray-800 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-700/30">
                                                     {comment.text}
@@ -377,6 +487,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({ task, onClose,
                                             </div>
                                         </div>
                                     ))}
+                                    {comments.length === 0 && !isLoadingComments && (
+                                        <div className="text-sm text-gray-400 dark:text-gray-500 italic py-4">
+                                            아직 댓글이 없습니다.
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

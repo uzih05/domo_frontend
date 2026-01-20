@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Task, Connection, Board, Group, TaskFile } from '../../../types';
+import { Task, Connection, Board, Group, TaskFile } from '@/src/types';
 import { TaskCard } from '../ui/TaskCard';
+import { createTask, updateTask } from '@/src/lib/api';
 import {
     Plus, LayoutDashboard, ChevronDown, Check, Pencil, X, MousePointer2, Layers, Spline, Activity, Trash2, FilePlus, Clipboard,
-    Grid, Sun, Moon
+    Grid, Sun, Moon, Loader2
 } from 'lucide-react';
 
 interface BoardCanvasProps {
@@ -54,6 +55,10 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     const [newBoardName, setNewBoardName] = useState('');
     const [editingBoardId, setEditingBoardId] = useState<number | null>(null);
     const [editBoardName, setEditBoardName] = useState('');
+
+    // API 호출 상태
+    const [isCreatingTask, setIsCreatingTask] = useState(false);
+    const [isSavingPosition, setIsSavingPosition] = useState(false);
 
     const resetBoardMenuState = useCallback(() => {
         setIsCreatingBoard(false);
@@ -126,6 +131,60 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
         return () => { window.removeEventListener('resize', handleResize); cancelAnimationFrame(animationFrameId); };
     }, [updateConnections]);
 
+    // 새 카드 생성 (API 호출)
+    const handleCreateNewTask = useCallback(async (x: number, y: number) => {
+        if (isCreatingTask) return;
+
+        setIsCreatingTask(true);
+        try {
+            // 임시 로컬 태스크 (낙관적 UI)
+            const tempId = Date.now();
+            const tempTask: Task = {
+                id: tempId,
+                title: "새로운 카드",
+                status: "todo",
+                x: x,
+                y: y,
+                tags: [],
+                boardId: activeBoardId
+            };
+
+            // 먼저 UI에 추가
+            onTasksUpdate([...tasks, tempTask]);
+
+            // API 호출
+            const savedTask = await createTask(1, {
+                title: "새로운 카드",
+                x: x,
+                y: y,
+                boardId: activeBoardId,
+                status: "todo",
+            });
+
+            // 임시 태스크를 실제 저장된 태스크로 교체
+            onTasksUpdate(tasks.filter(t => t.id !== tempId).concat(savedTask));
+            onTaskSelect(savedTask);
+        } catch (err) {
+            console.error('Failed to create task:', err);
+            // 실패 시 임시 태스크 제거
+            onTasksUpdate(tasks);
+        } finally {
+            setIsCreatingTask(false);
+        }
+    }, [isCreatingTask, activeBoardId, tasks, onTasksUpdate, onTaskSelect]);
+
+    // 카드 위치 저장 (드래그 종료 시)
+    const saveTaskPosition = useCallback(async (taskId: number, x: number, y: number) => {
+        try {
+            setIsSavingPosition(true);
+            await updateTask(taskId, { x, y });
+        } catch (err) {
+            console.error('Failed to save task position:', err);
+        } finally {
+            setIsSavingPosition(false);
+        }
+    }, []);
+
     useEffect(() => {
         const handleKeyDown = (evt: KeyboardEvent) => {
             const key = evt.key.toLowerCase();
@@ -151,24 +210,14 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 setSelectedTaskIds(new Set());
             }
 
-            if (key === 'n') {
+            if (key === 'n' && !isCreatingTask) {
                 evt.preventDefault();
-                const newTask: Task = {
-                    id: Date.now(),
-                    title: "새로운 카드",
-                    status: "todo",
-                    x: mousePosRef.current.x - 140,
-                    y: mousePosRef.current.y - 40,
-                    tags: [],
-                    boardId: activeBoardId
-                };
-                onTasksUpdate([...tasks, newTask]);
-                onTaskSelect(newTask);
+                handleCreateNewTask(mousePosRef.current.x - 140, mousePosRef.current.y - 40);
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedTaskIds, tasks, activeBoardId, onTasksUpdate, onTaskSelect, groups, onGroupsUpdate]);
+    }, [selectedTaskIds, tasks, activeBoardId, onTasksUpdate, onTaskSelect, groups, onGroupsUpdate, isCreatingTask, handleCreateNewTask]);
 
     useEffect(() => {
         const handleClickOutside = () => {
@@ -325,9 +374,27 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     };
 
     const handlePointerUp = () => {
+        // 드래그 종료 시 위치 저장
+        if (dragState) {
+            const task = tasks.find(t => t.id === dragState.id);
+            if (task && (task.x !== dragState.initialTaskX || task.y !== dragState.initialTaskY)) {
+                saveTaskPosition(dragState.id, task.x || 0, task.y || 0);
+            }
+            setDragState(null);
+        }
+
+        // 그룹 드래그 종료 시 포함된 태스크들 위치 저장
+        if (groupDragState) {
+            groupDragState.containedTaskIds.forEach(({ id }) => {
+                const task = tasks.find(t => t.id === id);
+                if (task) {
+                    saveTaskPosition(id, task.x || 0, task.y || 0);
+                }
+            });
+            setGroupDragState(null);
+        }
+
         if (selectionBox) setSelectionBox(null);
-        if (dragState) setDragState(null);
-        if (groupDragState) setGroupDragState(null);
         if (connectionDraft) setConnectionDraft(null);
     };
 
@@ -354,24 +421,14 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     };
 
     const handleCreateTaskFromMenu = () => {
-        if (!backgroundMenu) return;
-        const newTask: Task = {
-            id: Date.now(),
-            title: "새로운 카드",
-            status: "todo",
-            x: backgroundMenu.taskX,
-            y: backgroundMenu.taskY,
-            tags: [],
-            boardId: activeBoardId
-        };
-        onTasksUpdate([...tasks, newTask]);
-        onTaskSelect(newTask);
+        if (!backgroundMenu || isCreatingTask) return;
+        handleCreateNewTask(backgroundMenu.taskX, backgroundMenu.taskY);
         setBackgroundMenu(null);
     };
 
     const getConnectionById = (id: number) => connections.find(c => c.id === id);
 
-    const handleGlobalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleGlobalFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
             const fileList = Array.from(e.target.files) as File[];
             if (!containerRef.current) return;
@@ -386,20 +443,58 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
 
             const isFolder = taskFiles.length > 1;
 
-            const newTask: Task = {
-                id: Date.now(),
-                title: isFolder ? "새 폴더" : taskFiles[0].name,
-                status: 'todo',
-                description: isFolder ? `${taskFiles.length}개의 파일` : `Type: ${taskFiles[0].type}\nSize: ${(taskFiles[0].size / 1024).toFixed(1)} KB`,
-                x: container.scrollLeft + (container.clientWidth / 2) - 50,
-                y: container.scrollTop + (container.clientHeight / 2) - 50,
-                tags: [],
-                boardId: activeBoardId,
-                taskType: 2,
-                files: taskFiles
-            };
-            onTasksUpdate([...tasks, newTask]);
-            onTaskSelect(newTask);
+            // 파일 카드 생성
+            setIsCreatingTask(true);
+            try {
+                const tempTask: Task = {
+                    id: Date.now(),
+                    title: isFolder ? "새 폴더" : taskFiles[0].name,
+                    status: 'todo',
+                    description: isFolder ? `${taskFiles.length}개의 파일` : `Type: ${taskFiles[0].type}\nSize: ${(taskFiles[0].size / 1024).toFixed(1)} KB`,
+                    x: container.scrollLeft + (container.clientWidth / 2) - 50,
+                    y: container.scrollTop + (container.clientHeight / 2) - 50,
+                    tags: [],
+                    boardId: activeBoardId,
+                    taskType: 2,
+                    files: taskFiles
+                };
+
+                // API 호출 시도 (파일 업로드는 별도 처리 필요)
+                const savedTask = await createTask(1, {
+                    title: tempTask.title,
+                    description: tempTask.description,
+                    x: tempTask.x,
+                    y: tempTask.y,
+                    boardId: activeBoardId,
+                    status: 'todo',
+                    taskType: 2,
+                });
+
+                // 파일 정보 추가
+                const taskWithFiles = { ...savedTask, files: taskFiles, taskType: 2 };
+                onTasksUpdate([...tasks, taskWithFiles]);
+                onTaskSelect(taskWithFiles);
+            } catch (err) {
+                console.error('Failed to create file task:', err);
+                // 실패해도 로컬에 추가
+                const localTask: Task = {
+                    id: Date.now(),
+                    title: isFolder ? "새 폴더" : taskFiles[0].name,
+                    status: 'todo',
+                    description: isFolder ? `${taskFiles.length}개의 파일` : `Type: ${taskFiles[0].type}`,
+                    x: container.scrollLeft + (container.clientWidth / 2) - 50,
+                    y: container.scrollTop + (container.clientHeight / 2) - 50,
+                    tags: [],
+                    boardId: activeBoardId,
+                    taskType: 2,
+                    files: taskFiles
+                };
+                onTasksUpdate([...tasks, localTask]);
+                onTaskSelect(localTask);
+            } finally {
+                setIsCreatingTask(false);
+            }
+
             e.target.value = '';
         }
     };
@@ -422,6 +517,9 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                     taskType: task.taskType !== 2 ? 2 : task.taskType
                 };
                 onTasksUpdate(tasks.map(t => t.id === task.id ? updatedTask : t));
+
+                // API로 업데이트 (파일 첨부는 별도 API 필요)
+                updateTask(task.id, { taskType: 2 }).catch(console.error);
             }
             setActiveTaskForFile(null);
             e.target.value = '';
@@ -564,13 +662,20 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 <div className="flex items-center gap-6 mr-6">
                     <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-4 font-medium">
                         <div className="flex items-center gap-1.5 bg-white/50 dark:bg-white/10 px-2 py-1 rounded-lg backdrop-blur-sm shadow-sm"><span className="bg-gray-200 dark:bg-white/20 px-1.5 rounded text-[10px] uppercase">Ctrl</span><span>Select</span></div>
-                        <div className="flex items-center gap-1.5 bg-white/50 dark:bg-white/10 px-2 py-1 rounded-lg backdrop-blur-sm shadow-sm"><span className="bg-gray-200 dark:bg-white/20 px-1.5 rounded text-[10px] uppercase">G</span><span>Group</span></div>
+                        <div className="flex items-center gap-1.5 bg-white/50 dark:bg-white/10 px-2 py-1 rounded-lg backdrop-blur-sm shadow-sm"><span className="bg-gray-200 dark:bg-white/20 px-1.5 rounded text-[10px] uppercase">C</span><span>Group</span></div>
                         <div className="flex items-center gap-2 border-l border-gray-300 dark:border-white/10 pl-4"><MousePointer2 size={12} /><span>우클릭 / &apos;N&apos;</span></div>
                     </div>
 
                     <div className="h-6 w-[1px] bg-gray-300 dark:bg-white/10"></div>
 
                     <div className="flex items-center gap-3">
+                        {/* 저장 중 표시 */}
+                        {isSavingPosition && (
+                            <div className="flex items-center gap-1 text-xs text-gray-400">
+                                <Loader2 size={12} className="animate-spin" />
+                                <span>저장 중...</span>
+                            </div>
+                        )}
                         <button
                             onClick={onToggleGrid}
                             className={`p-2 rounded-lg transition-all duration-200 hover:bg-black/5 dark:hover:bg-white/10 ${snapToGrid ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 dark:text-gray-500'}`}
@@ -641,9 +746,15 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                     >
                         <button
                             onClick={handleCreateTaskFromMenu}
-                            className="flex items-center gap-3 px-4 py-3 text-xs hover:bg-black/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 w-full text-left font-medium"
+                            disabled={isCreatingTask}
+                            className="flex items-center gap-3 px-4 py-3 text-xs hover:bg-black/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 w-full text-left font-medium disabled:opacity-50"
                         >
-                            <FilePlus size={16} className="text-blue-500" /><span>새로운 카드 추가</span>
+                            {isCreatingTask ? (
+                                <Loader2 size={16} className="animate-spin text-blue-500" />
+                            ) : (
+                                <FilePlus size={16} className="text-blue-500" />
+                            )}
+                            <span>{isCreatingTask ? '생성 중...' : '새로운 카드 추가'}</span>
                         </button>
                         {backgroundMenu.targetTaskId && (
                             <button

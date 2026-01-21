@@ -143,13 +143,22 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
     // 태스크 핸들러
     // =========================================
 
-    // 보드 내 태스크 업데이트 (로컬 상태만)
+    // ✅ 보드 내 태스크 업데이트 (로컬 상태만) - 중복 방지
     const handleBoardTasksUpdate = useCallback((boardTasks: Task[]) => {
         setTasks(prev => {
-            const other = prev.filter(t => t.boardId !== activeBoardId);
-            return [...other, ...boardTasks];
+            // 현재 보드가 아닌 태스크들
+            const otherBoardTasks = prev.filter(t =>
+                t.boardId !== activeBoardId && t.boardId !== project.id
+            );
+
+            // 중복 제거: boardTasks에서 고유한 ID만 유지
+            const uniqueBoardTasks = boardTasks.filter((task, index, self) =>
+                index === self.findIndex(t => t.id === task.id)
+            );
+
+            return [...otherBoardTasks, ...uniqueBoardTasks];
         });
-    }, [activeBoardId]);
+    }, [activeBoardId, project.id]);
 
     // ✅ 태스크 생성 - 기본 컬럼에 배치
     const handleTaskCreate = useCallback(async (taskData: Partial<Task>): Promise<Task> => {
@@ -190,7 +199,11 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
 
         try {
             const newTask = await createTask(columnId, newTaskData);
-            setTasks(prev => [...prev, newTask]);
+            // ✅ 기존 태스크 목록에 새 태스크 추가 (중복 방지)
+            setTasks(prev => {
+                const filtered = prev.filter(t => t.id !== newTask.id);
+                return [...filtered, newTask];
+            });
             console.log('✅ Task created:', newTask.id, 'in column:', columnId);
             return newTask;
         } catch (err) {
@@ -199,9 +212,8 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
         }
     }, [project.id, getDefaultColumnId]);
 
-    // ✅ 태스크 업데이트 (위치 변경 시 컬럼 ID도 함께 변경)
+    // ✅ 태스크 업데이트 - 중복 방지 로직 추가
     const handleTaskUpdate = useCallback(async (taskId: number, updates: Partial<Task>): Promise<void> => {
-        const previousTasks = [...tasks];
         const task = tasks.find(t => t.id === taskId);
 
         if (!task) {
@@ -221,8 +233,14 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
             }
         }
 
-        // 낙관적 UI 업데이트
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...finalUpdates } : t));
+        // ✅ 낙관적 UI 업데이트 - 중복 방지
+        setTasks(prev => {
+            const updated = prev.map(t => t.id === taskId ? { ...t, ...finalUpdates } : t);
+            // 중복 제거
+            return updated.filter((task, index, self) =>
+                index === self.findIndex(t => t.id === task.id)
+            );
+        });
 
         try {
             setIsSaving(true);
@@ -230,8 +248,13 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
             console.log('✅ Task updated:', taskId, finalUpdates);
         } catch (err) {
             console.error('❌ Failed to update task:', err);
-            // 롤백
-            setTasks(previousTasks);
+            // 롤백 - 원래 태스크로 복원
+            setTasks(prev => {
+                const rolledBack = prev.map(t => t.id === taskId ? task : t);
+                return rolledBack.filter((t, index, self) =>
+                    index === self.findIndex(item => item.id === t.id)
+                );
+            });
             throw err;
         } finally {
             setIsSaving(false);
@@ -452,10 +475,10 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
         );
     }
 
-    // 현재 보드의 태스크만 필터링
-    const filteredTasks = tasks.filter(t =>
-        t.boardId === activeBoardId || t.boardId === project.id || activeBoardId === 1
-    );
+    // ✅ 현재 보드의 태스크만 필터링 - 중복 제거
+    const filteredTasks = tasks
+        .filter(t => t.boardId === activeBoardId || t.boardId === project.id || activeBoardId === 1)
+        .filter((task, index, self) => index === self.findIndex(t => t.id === task.id));
 
     const filteredConnections = connections.filter(c =>
         c.boardId === activeBoardId || c.boardId === project.id || activeBoardId === 1
@@ -566,13 +589,13 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
                         <BoardCanvas
                             tasks={filteredTasks}
                             connections={filteredConnections}
-                            columns={columns}  // ✅ 컬럼 정보 전달
+                            columns={columns}
                             onTasksUpdate={handleBoardTasksUpdate}
                             onTaskSelect={handleTaskSelect}
                             onTaskCreate={handleTaskCreate}
                             onTaskUpdate={handleTaskUpdate}
                             onTaskDelete={handleTaskDelete}
-                            onMoveTaskToColumn={handleMoveTaskToColumn}  // ✅ 컬럼 이동 핸들러 전달
+                            onMoveTaskToColumn={handleMoveTaskToColumn}
                             onConnectionCreate={handleConnectionCreate}
                             onConnectionDelete={handleConnectionDelete}
                             onConnectionUpdate={handleConnectionUpdate}
@@ -584,7 +607,7 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
                             snapToGrid={snapToGrid}
                             groups={filteredGroups}
                             onGroupsUpdate={handleGroupsUpdate}
-                            onGroupMove={handleGroupMove}  // ✅ 그룹 이동 핸들러 전달
+                            onGroupMove={handleGroupMove}
                             onToggleGrid={handleToggleGrid}
                             onToggleTheme={handleToggleTheme}
                         />

@@ -4,13 +4,15 @@ import React, { useState } from 'react';
 import { Task } from '../../../types';
 import { getStickyStyle, getContrastColor } from '../../../lib/utils/canvas';
 import {
-    FolderOpen, FileText, Download, Folder, Clock, AlignLeft, Paperclip, MoreHorizontal, ChevronRight
+    FolderOpen, FileText, Download, Folder, Clock, AlignLeft, Paperclip, MoreHorizontal, ChevronRight,
+    Circle, CheckCircle2, ChevronDown
 } from 'lucide-react';
 
 interface TaskCardProps {
     task: Task;
     onClick: () => void;
     onMove?: () => void;
+    onStatusChange?: (taskId: number, newStatus: string) => void;
     transparent?: boolean;
     variant?: 'default' | 'sticky';
     style?: React.CSSProperties;
@@ -21,10 +23,32 @@ interface TaskCardProps {
     onAttachFile?: (taskId: number) => void;
 }
 
+// 상태별 아이콘 컴포넌트
+const StatusIcon: React.FC<{ status: string; size?: number; className?: string }> = ({ status, size = 12, className = "" }) => {
+    switch (status) {
+        case 'done':
+            return <CheckCircle2 size={size} className={`text-green-500 ${className}`} />;
+        case 'doing':
+        case 'in-progress':
+            return <MoreHorizontal size={size} className={`text-yellow-500 ${className}`} />;
+        case 'todo':
+        default:
+            return <Circle size={size} className={`text-blue-500 ${className}`} />;
+    }
+};
+
+// 상태 옵션
+const STATUS_OPTIONS = [
+    { value: 'todo', label: '할 일', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20' },
+    { value: 'in-progress', label: '진행 중', color: 'text-yellow-500', bg: 'bg-yellow-50 dark:bg-yellow-900/20' },
+    { value: 'done', label: '완료', color: 'text-green-500', bg: 'bg-green-50 dark:bg-green-900/20' },
+];
+
 export const TaskCard: React.FC<TaskCardProps> = ({
-                                                      task, onClick, onMove, transparent, variant = 'default', style, isSelected, onPointerDown, onConnectStart, onConnectEnd, onAttachFile
+                                                      task, onClick, onMove, onStatusChange, transparent, variant = 'default', style, isSelected, onPointerDown, onConnectStart, onConnectEnd, onAttachFile
                                                   }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [showStatusMenu, setShowStatusMenu] = useState(false);
 
     const handleDragStart = (e: React.DragEvent) => {
         if (variant !== 'sticky') {
@@ -219,16 +243,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         cardClasses += " ring-4 ring-blue-500/50 dark:ring-blue-400/60 z-20 scale-[1.02] ";
     }
 
-    const getStatusLabel = (status: string) => {
-        switch(status) {
-            case 'inbox': return '수신함';
-            case 'todo': return '할 일';
-            case 'doing': return '진행 중';
-            case 'done': return '완료';
-            default: return status;
-        }
-    };
-
     const formatTimeDisplay = (timeStr: string) => {
         if (!timeStr) return '';
         const parts = timeStr.split('|');
@@ -254,9 +268,49 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 backgroundColor: (variant === 'sticky' && isCustomColor) ? task.color : undefined
             }}
         >
+            {/* ✅ 상태 변경 드롭다운 - 카드 우상단 */}
             {variant === 'sticky' && (
-                <div className="absolute -top-3 left-3 bg-white/80 dark:bg-black/40 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider opacity-70 border border-black/5 shadow-sm backdrop-blur-md text-gray-800 dark:text-gray-100">
-                    {getStatusLabel(task.status)}
+                <div className="absolute -top-2 -right-2 z-30">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setShowStatusMenu(!showStatusMenu);
+                        }}
+                        className="w-7 h-7 bg-white dark:bg-gray-800 rounded-full flex items-center justify-center shadow-md border border-gray-200 dark:border-gray-700 hover:scale-110 transition-transform"
+                    >
+                        <StatusIcon status={task.status} size={14} />
+                    </button>
+
+                    {/* 상태 변경 드롭다운 메뉴 */}
+                    {showStatusMenu && (
+                        <>
+                            <div
+                                className="fixed inset-0 z-40"
+                                onClick={(e) => { e.stopPropagation(); setShowStatusMenu(false); }}
+                            />
+                            <div className="absolute top-full right-0 mt-1 w-32 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
+                                {STATUS_OPTIONS.map((option) => (
+                                    <button
+                                        key={option.value}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onStatusChange?.(task.id, option.value);
+                                            setShowStatusMenu(false);
+                                        }}
+                                        className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                                            task.status === option.value ? option.bg : ''
+                                        }`}
+                                    >
+                                        <StatusIcon status={option.value} size={14} />
+                                        <span className="text-gray-700 dark:text-gray-200">{option.label}</span>
+                                        {task.status === option.value && (
+                                            <CheckCircle2 size={12} className="ml-auto text-blue-500" />
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Task, Connection, Board, Group, TaskFile, Column } from '../../../types';
+import { Task, Connection, Board, Group, Column } from '../../../types';
 import { TaskCard } from '../ui/TaskCard';
 import { deleteTask } from '../../../lib/api';
 import {
@@ -65,7 +65,6 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     const [newBoardName, setNewBoardName] = useState('');
     const [editingBoardId, setEditingBoardId] = useState<number | null>(null);
     const [editBoardName, setEditBoardName] = useState('');
-    const [hoveredColumnId, setHoveredColumnId] = useState<number | null>(null);
 
     const [isCreatingTask, setIsCreatingTask] = useState(false);
     const [isSavingPosition, setIsSavingPosition] = useState(false);
@@ -270,12 +269,44 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
         }
     };
 
+    // ✅ 수정된 다중 삭제 함수 - 병렬 처리 및 원자적 상태 업데이트
     const handleDeleteSelectedTasks = async () => {
-        if (selectedTaskIds.size === 0) return;
-        for (const id of Array.from(selectedTaskIds)) {
-            await handleDeleteTask(id);
-        }
+        if (selectedTaskIds.size === 0 || isDeletingTask) return;
+
+        const idsToDelete = Array.from(selectedTaskIds);
+        setIsDeletingTask(true);
+
+        // 먼저 로컬 상태에서 모든 카드 제거 (낙관적 UI)
+        const previousTasks = [...tasks];
+        onTasksUpdate(tasks.filter(t => !selectedTaskIds.has(t.id)));
+
+        // 관련 연결선도 제거
+        idsToDelete.forEach(id => {
+            connections.filter(c => c.from === id || c.to === id).forEach(c => onConnectionDelete(c.id));
+        });
+
+        // 선택 해제
         setSelectedTaskIds(new Set());
+
+        // 백엔드에 병렬로 삭제 요청
+        try {
+            await Promise.all(idsToDelete.map(async (id) => {
+                try {
+                    if (onTaskDelete) await onTaskDelete(id);
+                    else await deleteTask(id);
+                } catch (err) {
+                    console.warn(`Failed to delete task ${id}:`, err);
+                    // 개별 실패는 무시 (이미 삭제된 경우 등)
+                }
+            }));
+        } catch (err) {
+            console.error('Failed to delete tasks:', err);
+            // 전체 실패 시 롤백
+            onTasksUpdate(previousTasks);
+        } finally {
+            setIsDeletingTask(false);
+            setBackgroundMenu(null);
+        }
     };
 
     const handlePointerDown = (e: React.PointerEvent, task?: Task, group?: Group) => {
@@ -364,8 +395,6 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 newGroupX = Math.round(newGroupX / 20) * 20;
                 newGroupY = Math.round(newGroupY / 20) * 20;
             }
-            const targetColumn = getColumnByX(newGroupX + 140);
-            setHoveredColumnId(targetColumn?.id || null);
             onGroupsUpdate(groups.map(g => g.id === groupDragState.id ? { ...g, x: newGroupX, y: newGroupY } : g));
             if (groupDragState.containedTaskIds.length > 0) {
                 const effectiveDeltaX = newGroupX - groupDragState.initialGroupX;
@@ -384,8 +413,6 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 newX = Math.round(newX / 20) * 20;
                 newY = Math.round(newY / 20) * 20;
             }
-            const targetColumn = getColumnByX(newX + 140);
-            setHoveredColumnId(targetColumn?.id || null);
             onTasksUpdate(tasks.map(t => t.id === dragState.id ? { ...t, x: newX, y: newY } : t));
         } else if (connectionDraft) {
             setConnectionDraft(prev => prev ? { ...prev, currX: x, currY: y } : null);
@@ -393,7 +420,6 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     };
 
     const handlePointerUp = async () => {
-        setHoveredColumnId(null);
         if (selectionBox) setSelectionBox(null);
         if (dragState) {
             const task = tasks.find(t => t.id === dragState.id);
@@ -427,15 +453,6 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     };
 
     const getConnectionById = (id: number) => connections.find(c => c.id === id);
-    const getColumnColor = (status: string) => {
-        switch (status) {
-            case 'todo': return 'bg-blue-500/10 border-blue-500/30';
-            case 'doing':
-            case 'in-progress': return 'bg-yellow-500/10 border-yellow-500/30';
-            case 'done': return 'bg-green-500/10 border-green-500/30';
-            default: return 'bg-gray-500/10 border-gray-500/30';
-        }
-    };
 
     return (
         <div className="flex flex-col h-full bg-white/30 dark:bg-black/20 backdrop-blur-xl relative w-full overflow-hidden">
@@ -506,33 +523,6 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             {/* Canvas with Column Overlays */}
             <div ref={containerRef} className="flex-1 overflow-auto relative custom-scrollbar w-full h-full bg-[radial-gradient(rgba(0,0,0,0.05)_1px,transparent_1px)] dark:bg-[radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[length:24px_24px]" onContextMenu={handleBackgroundContextMenu} onPointerDown={(evt) => handlePointerDown(evt)} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp}>
 
-                {/* ✅ Column Drop Zones */}
-                {sortedColumns.map((col, idx) => (
-                    <div
-                        key={col.id}
-                        className={`absolute top-0 h-full border-2 border-dashed transition-all duration-200 rounded-2xl pointer-events-none ${
-                            hoveredColumnId === col.id
-                                ? `${getColumnColor(col.status)} border-opacity-100 bg-opacity-30`
-                                : 'border-transparent bg-transparent'
-                        }`}
-                        style={{
-                            left: COLUMN_START_X + idx * (COLUMN_WIDTH + COLUMN_GAP),
-                            width: COLUMN_WIDTH,
-                        }}
-                    >
-                        {/* Column Header */}
-                        <div className={`sticky top-2 mx-2 px-4 py-2 rounded-xl text-sm font-bold backdrop-blur-md ${getColumnColor(col.status)} border`}>
-                            <span className="flex items-center gap-2">
-                                <span className={`w-2 h-2 rounded-full ${col.status === 'todo' ? 'bg-blue-500' : col.status === 'done' ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
-                                {col.title}
-                                <span className="ml-auto text-xs opacity-60">
-                                    {tasks.filter(t => t.column_id === col.id).length}
-                                </span>
-                            </span>
-                        </div>
-                    </div>
-                ))}
-
                 <svg className="absolute top-0 left-0 pointer-events-none z-0" style={{ width: Math.max(svgSize.width, 2000), height: Math.max(svgSize.height, 2000) }}>{lines}</svg>
 
                 {groups.map(group => (
@@ -550,7 +540,32 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 ))}
 
                 {tasks.map(task => (
-                    <TaskCard key={task.id} task={task} variant="sticky" style={{ position: 'absolute', left: task.x || 0, top: task.y || 0 }} isSelected={selectedTaskIds.has(task.id)} onPointerDown={(evt) => handlePointerDown(evt, task)} onClick={() => onTaskSelect(task)} onConnectStart={handleConnectStart} onConnectEnd={handleConnectEnd} onAttachFile={(taskId) => { setActiveTaskForFile(taskId); taskFileInputRef.current?.click(); }} />
+                    <TaskCard
+                        key={task.id}
+                        task={task}
+                        variant="sticky"
+                        style={{ position: 'absolute', left: task.x || 0, top: task.y || 0 }}
+                        isSelected={selectedTaskIds.has(task.id)}
+                        onPointerDown={(evt) => handlePointerDown(evt, task)}
+                        onClick={() => onTaskSelect(task)}
+                        onConnectStart={handleConnectStart}
+                        onConnectEnd={handleConnectEnd}
+                        onAttachFile={(taskId) => { setActiveTaskForFile(taskId); taskFileInputRef.current?.click(); }}
+                        onStatusChange={async (taskId, newStatus) => {
+                            // 해당 상태에 맞는 컬럼 찾기
+                            const targetColumn = sortedColumns.find(col => col.status === newStatus);
+                            if (targetColumn && onTaskUpdate) {
+                                try {
+                                    await onTaskUpdate(taskId, {
+                                        status: newStatus as Task['status'],
+                                        column_id: targetColumn.id
+                                    });
+                                } catch (err) {
+                                    console.error('Failed to update task status:', err);
+                                }
+                            }
+                        }}
+                    />
                 ))}
 
                 {selectionBox && (<div className="absolute border-2 border-blue-500/50 bg-blue-500/10 rounded-xl z-50 pointer-events-none backdrop-blur-sm" style={{ left: Math.min(selectionBox.startX, selectionBox.currX), top: Math.min(selectionBox.startY, selectionBox.currY), width: Math.abs(selectionBox.currX - selectionBox.startX), height: Math.abs(selectionBox.currY - selectionBox.startY) }} />)}

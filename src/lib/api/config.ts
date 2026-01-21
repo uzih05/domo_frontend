@@ -9,8 +9,7 @@ console.log("Current Env Check:", {
 
 export const API_CONFIG = {
   BASE_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9000/api',
-  // 확실하게 false 문자열인지 체크 (기본값을 false로 두고 싶다면 로직 반대로)
-  USE_MOCK: process.env.NEXT_PUBLIC_USE_MOCK !== 'false',
+  USE_MOCK: process.env.NEXT_PUBLIC_USE_MOCK === 'true',
 } as const;
 
 // ============================================

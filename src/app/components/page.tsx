@@ -1,6 +1,9 @@
+// src/app/components/page.tsx
+
 "use client";
 
 import { useState } from "react";
+<<<<<<< HEAD
 import { LoginScreen } from "../components/LoginScreen";
 import { SignupScreen } from "../components/SignupScreen";
 import { VerifyEmailScreen } from "../components/VerifyEmailScreen";
@@ -11,6 +14,14 @@ import type { Project, AuthUser } from "@/src/types"; // types 경로 확인 필
 
 // 화면 상태를 정의하는 타입
 type AuthScreen = 'login' | 'signup' | 'verify' | 'verify-success';
+=======
+// 1. [수정] 같은 폴더에 있으므로 ./LoginScreen
+import { LoginScreen } from "./LoginScreen";
+// 2. [수정] 하위 폴더 참조 수정
+import { ProjectSelect } from "./ui/ProjectSelect";
+import { WorkspaceBoard } from "./board/WorkspaceBoard";
+import type { Project, AuthUser } from "@/src/types";
+>>>>>>> abaf587 (WIP: Changes before switching to dev)
 
 export default function Home() {
     const [user, setUser] = useState<AuthUser | null>(null);
@@ -105,11 +116,19 @@ export default function Home() {
 
     // 3. 프로젝트 선택됨 → 워크스페이스 보드
     return (
+<<<<<<< HEAD
         <div className="h-screen w-full overflow-hidden">
             <WorkspaceBoard
                 project={selectedProject}
                 onBack={handleBackToProjects}
             />
         </div>
+=======
+        <WorkspaceBoard
+            project={selectedProject}
+            user={user} // 👈 [중요] 이전 에러 해결을 위해 user prop 추가
+            onBack={handleBackToProjects}
+        />
+>>>>>>> abaf587 (WIP: Changes before switching to dev)
     );
 }

@@ -1,13 +1,22 @@
 "use client";
 
 import { useState } from "react";
+// 👇 [수정] 경로에 components/ 추가
 import { LoginScreen } from "./components/LoginScreen";
+<<<<<<< HEAD
 import { SignupScreen } from "./components/SignupScreen";
 import { VerifyEmailScreen } from "./components/VerifyEmailScreen";
 import { VerifySuccessScreen } from "./components/VerifySuccessScreen";
 import { ProjectSelect } from "./components/ui/ProjectSelect";
 import { WorkspaceBoard } from "./components/board/WorkspaceBoard";
 import type { Project, AuthUser } from "../types/index";
+=======
+// 👇 [수정] 경로에 components/ 추가
+import { ProjectSelect } from "./components/ui/ProjectSelect";
+// 👇 [수정] 경로에 components/ 추가
+import { WorkspaceBoard } from "./components/board/WorkspaceBoard";
+import type { Project, AuthUser } from "@/src/types";
+>>>>>>> abaf587 (WIP: Changes before switching to dev)
 
 type AuthScreen = 'login' | 'signup' | 'verify' | 'verify-success';
 
@@ -111,11 +120,16 @@ export default function Home() {
         );
     }
 
+<<<<<<< HEAD
     // 프로젝트 선택됨 → 워크스페이스 보드
+=======
+    // 3. 프로젝트 선택됨 → 워크스페이스 보드
+>>>>>>> abaf587 (WIP: Changes before switching to dev)
     return (
         <div className="h-screen w-full overflow-hidden">
             <WorkspaceBoard
                 project={selectedProject}
+                user={user}
                 onBack={handleBackToProjects}
             />
         </div>

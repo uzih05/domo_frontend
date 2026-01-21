@@ -6,6 +6,9 @@ import { BoardCanvas } from './BoardCanvas';
 import { CalendarView, TimelineView, SettingsView } from './Views';
 import { TaskDetailModal } from '../ui/TaskDetailModal';
 import { Mascot } from '../ui/Mascot';
+import { Dock } from '../dock/Dock';
+import { AuthUser } from '@/src/types'; // AuthUser 타입 import 확인 필요
+import { MOCK_MEMBERS } from '@/src/lib/api/mock-data';
 
 import {
     getTasks,
@@ -23,10 +26,11 @@ import {
 
 interface WorkspaceBoardProps {
     project: Project;
+    user: AuthUser;
     onBack: () => void;
 }
 
-export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack }) => {
+export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, user, onBack }) => {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [connections, setConnections] = useState<Connection[]>([]);
     const [boards, setBoards] = useState<Board[]>([{ id: 1, title: '메인 보드' }]);
@@ -36,6 +40,8 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [snapToGrid, setSnapToGrid] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [activeDockMenu, setActiveDockMenu] = useState('dashboard');
+    const [showMembers, setShowMembers] = useState(false);
 
     // 로딩 & 에러 상태
     const [isLoading, setIsLoading] = useState(true);
@@ -303,6 +309,21 @@ export const WorkspaceBoard: React.FC<WorkspaceBoardProps> = ({ project, onBack 
                     {viewMode === 'settings' && <SettingsView />}
                 </div>
             </div>
+
+            <Dock
+                activeMenu={activeDockMenu}
+                onMenuChange={setActiveDockMenu}
+                editingCards={[]}
+
+                // ❌ 기존 코드: members={[]}
+                // ✅ 수정 코드: 목업 데이터를 연결해줍니다.
+                members={MOCK_MEMBERS}
+
+                showMembers={showMembers}
+                setShowMembers={setShowMembers}
+                projectId={project.id}
+                currentUserId={user.id || 0}
+            />
 
             {selectedTask && (
                 <TaskDetailModal

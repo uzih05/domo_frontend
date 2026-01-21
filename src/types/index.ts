@@ -13,6 +13,7 @@ export interface User {
 }
 
 export interface AuthUser {
+    id: number;      // 👈 [추가] 이 줄을 꼭 추가해주세요!
   email: string;
   name: string;
 }

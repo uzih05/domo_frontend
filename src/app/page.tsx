@@ -1,15 +1,23 @@
-
 "use client";
 
 import { useState } from "react";
 import { LoginScreen } from "./components/LoginScreen";
-import { ProjectSelect } from "@/src/app/components/ui/ProjectSelect";
-import { WorkspaceBoard } from "@/src/app/components/board/WorkspaceBoard";
+import { SignupScreen } from "./components/SignupScreen";
+import { VerifyEmailScreen } from "./components/VerifyEmailScreen";
+import { VerifySuccessScreen } from "./components/VerifySuccessScreen";
+import { ProjectSelect } from "./components/ui/ProjectSelect";
+import { WorkspaceBoard } from "./components/board/WorkspaceBoard";
 import type { Project, AuthUser } from "../types/index";
+
+type AuthScreen = 'login' | 'signup' | 'verify' | 'verify-success';
 
 export default function Home() {
     const [user, setUser] = useState<AuthUser | null>(null);
     const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+
+    // 인증 화면 상태 관리
+    const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
+    const [pendingEmail, setPendingEmail] = useState<string>('');
 
     const handleLoginSuccess = (loggedInUser: AuthUser) => {
         setUser(loggedInUser);
@@ -18,6 +26,7 @@ export default function Home() {
     const handleLogout = () => {
         setUser(null);
         setSelectedProject(null);
+        setAuthScreen('login');
     };
 
     const handleSelectProject = (project: Project) => {
@@ -28,12 +37,70 @@ export default function Home() {
         setSelectedProject(null);
     };
 
-    // 1. 로그인 안됨 → 로그인 화면
+    // 회원가입 성공 시 → 이메일 인증 화면으로
+    const handleSignupSuccess = (email: string) => {
+        setPendingEmail(email);
+        setAuthScreen('verify');
+    };
+
+    // 이메일 인증 성공 시 → 성공 화면으로
+    const handleVerifySuccess = () => {
+        setAuthScreen('verify-success');
+    };
+
+    // 인증 코드 재전송
+    const handleResendCode = async () => {
+        // 백엔드에 재전송 API가 있다면 호출
+        // 현재는 signup을 다시 호출하면 코드가 재생성됨
+        // 실제로는 별도의 resend API를 만드는 것이 좋음
+        try {
+            // 임시: 콘솔에 로그만 출력
+            console.log('인증 코드 재전송 요청:', pendingEmail);
+            // await resendVerificationCode(pendingEmail);
+        } catch (err) {
+            console.error('재전송 실패:', err);
+        }
+    };
+
+    // 로그인 전 - 인증 화면들
     if (!user) {
-        return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+        switch (authScreen) {
+            case 'signup':
+                return (
+                    <SignupScreen
+                        onSignupSuccess={handleSignupSuccess}
+                        onBackToLogin={() => setAuthScreen('login')}
+                    />
+                );
+
+            case 'verify':
+                return (
+                    <VerifyEmailScreen
+                        email={pendingEmail}
+                        onVerifySuccess={handleVerifySuccess}
+                        onBackToSignup={() => setAuthScreen('signup')}
+                        onResendCode={handleResendCode}
+                    />
+                );
+
+            case 'verify-success':
+                return (
+                    <VerifySuccessScreen
+                        onGoToLogin={() => setAuthScreen('login')}
+                    />
+                );
+
+            default:
+                return (
+                    <LoginScreen
+                        onLoginSuccess={handleLoginSuccess}
+                        onGoToSignup={() => setAuthScreen('signup')}
+                    />
+                );
+        }
     }
 
-    // 2. 로그인됨, 프로젝트 미선택 → 프로젝트 선택 화면
+    // 로그인됨, 프로젝트 미선택 → 프로젝트 선택 화면
     if (!selectedProject) {
         return (
             <ProjectSelect
@@ -44,14 +111,12 @@ export default function Home() {
         );
     }
 
-    // 3. 프로젝트 선택됨 → 워크스페이스 보드 (Request Match)
+    // 프로젝트 선택됨 → 워크스페이스 보드
     return (
         <div className="h-screen w-full overflow-hidden">
             <WorkspaceBoard
                 project={selectedProject}
                 onBack={handleBackToProjects}
-                user={user}
-                onLogout={handleLogout}
             />
         </div>
     );

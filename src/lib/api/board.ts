@@ -8,6 +8,190 @@ import {
 } from './mock-data';
 
 // ============================================
+// 백엔드 응답 타입 (내부용)
+// ============================================
+
+interface BackendCardResponse {
+  id: number;
+  title: string;
+  content: string | null;
+  order: number;
+  column_id: number;
+  card_type: string;
+  x: number;
+  y: number;
+  created_at: string;
+  updated_at: string;
+  assignees: Array<{
+    id: number;
+    email: string;
+    name: string;
+    is_student_verified: boolean;
+    profile_image?: string;
+  }>;
+  files: Array<{
+    id: number;
+    project_id: number;
+    filename: string;
+    owner_id: number;
+    created_at: string;
+    latest_version?: {
+      id: number;
+      version: number;
+      file_size: number;
+      created_at: string;
+      uploader_id: number;
+    };
+  }>;
+  start_date: string | null;
+  due_date: string | null;
+}
+
+interface BackendColumnResponse {
+  id: number;
+  title: string;
+  order: number;
+  project_id: number;
+}
+
+interface BackendConnectionResponse {
+  id: number;
+  from: number;
+  to: number;
+  boardId: number;
+  style: string;
+  shape: string;
+}
+
+// ============================================
+// 타입 변환 함수들
+// ============================================
+
+/**
+ * 컬럼 제목으로 상태 추론
+ */
+function inferStatusFromColumn(columnTitle: string): Task['status'] {
+  const lower = columnTitle.toLowerCase();
+
+  // 완료 상태
+  if (lower.includes('done') || lower.includes('완료')) return 'done';
+
+  // 진행 중 상태 - 다양한 표현 지원
+  if (lower.includes('doing') ||
+      lower.includes('progress') ||
+      lower.includes('진행') ||
+      lower.includes('작업')) return 'in-progress';
+
+  // 수신함/인박스
+  if (lower.includes('inbox') || lower.includes('수신')) return 'inbox';
+
+  // 기본값: todo
+  return 'todo';
+}
+
+/**
+ * 백엔드 날짜를 프론트엔드 time 형식으로 변환
+ */
+function formatTaskTime(startDate?: string | null, dueDate?: string | null): string | undefined {
+  if (!startDate && !dueDate) return undefined;
+
+  const formatDate = (d: string) => d.split('T')[0];
+
+  if (startDate && dueDate) {
+    return `${formatDate(startDate)}|${formatDate(dueDate)}`;
+  }
+  if (startDate) return formatDate(startDate);
+  if (dueDate) return formatDate(dueDate);
+
+  return undefined;
+}
+
+/**
+ * 백엔드 Card 응답을 프론트엔드 Task로 변환
+ */
+function mapBackendCardToTask(
+    card: BackendCardResponse,
+    projectId: number,
+    columnTitle: string
+): Task {
+  return {
+    id: card.id,
+    title: card.title,
+    description: card.content || undefined,
+    content: card.content || undefined,
+    status: inferStatusFromColumn(columnTitle),
+    x: card.x || 0,
+    y: card.y || 0,
+    boardId: projectId, // 중요: 프로젝트 ID를 boardId로 사용
+    column_id: card.column_id,
+    card_type: card.card_type,
+    taskType: card.card_type === 'task' ? 0 : card.card_type === 'memo' ? 1 : undefined,
+    assignees: (card.assignees || []).map(user => ({
+      id: user.id,
+      name: user.name,
+      avatar: user.profile_image || null,
+    })),
+    files: (card.files || []).map(file => ({
+      id: file.id,
+      name: file.filename,
+      url: file.latest_version
+          ? `${API_CONFIG.BASE_URL}/files/download/${file.latest_version.id}`
+          : '#',
+      size: file.latest_version?.file_size || 0,
+      type: getFileType(file.filename),
+    })),
+    comments: [], // 댓글은 별도 API로 로드
+    start_date: card.start_date || undefined,
+    due_date: card.due_date || undefined,
+    time: formatTaskTime(card.start_date, card.due_date),
+    created_at: card.created_at,
+    updated_at: card.updated_at,
+  };
+}
+
+/**
+ * 파일 확장자로 MIME 타입 추론
+ */
+function getFileType(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const typeMap: Record<string, string> = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+  };
+  return typeMap[ext] || 'application/octet-stream';
+}
+
+/**
+ * 타임스탬프를 읽기 쉬운 형식으로 변환
+ */
+function formatTimestamp(isoString: string): string {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return '방금 전';
+  if (diffMins < 60) return `${diffMins}분 전`;
+  if (diffHours < 24) return `${diffHours}시간 전`;
+  if (diffDays < 7) return `${diffDays}일 전`;
+
+  return date.toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+// ============================================
 // 컬럼 API
 // ============================================
 
@@ -20,12 +204,20 @@ export async function getColumns(projectId: number): Promise<Column[]> {
     // Mock 컬럼 데이터
     return [
       { id: 1, title: '할 일', status: 'todo', order: 0, project_id: projectId },
-      { id: 2, title: '진행 중', status: 'doing', order: 1, project_id: projectId },
+      { id: 2, title: '진행 중', status: 'in-progress', order: 1, project_id: projectId },
       { id: 3, title: '완료', status: 'done', order: 2, project_id: projectId },
     ];
   }
 
-  return apiFetch<Column[]>(`/projects/${projectId}/columns`);
+  const response = await apiFetch<BackendColumnResponse[]>(`/projects/${projectId}/columns`);
+
+  return response.map(col => ({
+    id: col.id,
+    title: col.title,
+    status: inferStatusFromColumn(col.title),
+    order: col.order,
+    project_id: col.project_id,
+  }));
 }
 
 /**
@@ -46,10 +238,18 @@ export async function createColumn(
     };
   }
 
-  return apiFetch<Column>(`/projects/${projectId}/columns`, {
+  const response = await apiFetch<BackendColumnResponse>(`/projects/${projectId}/columns`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
+
+  return {
+    id: response.id,
+    title: response.title,
+    status: inferStatusFromColumn(response.title),
+    order: response.order,
+    project_id: response.project_id,
+  };
 }
 
 // ============================================
@@ -62,22 +262,35 @@ export async function createColumn(
 export async function getBoard(projectId: number): Promise<{ column: Column; cards: Task[] }[]> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(300);
-    const columns = [
-      { id: 1, title: '할 일', status: 'todo' as const, order: 0, project_id: projectId },
-      { id: 2, title: '진행 중', status: 'doing' as const, order: 1, project_id: projectId },
-      { id: 3, title: '완료', status: 'done' as const, order: 2, project_id: projectId },
+    const columns: Column[] = [
+      { id: 1, title: '할 일', status: 'todo', order: 0, project_id: projectId },
+      { id: 2, title: '진행 중', status: 'in-progress', order: 1, project_id: projectId },
+      { id: 3, title: '완료', status: 'done', order: 2, project_id: projectId },
     ];
 
     return columns.map(col => ({
       column: col,
       cards: MOCK_TASKS.filter(t =>
           (t.boardId === projectId || projectId === 1) &&
-          (t.status === col.status || (col.status === 'doing' && t.status === 'in-progress'))
+          (t.status === col.status || (col.status === 'in-progress' && t.status === 'doing'))
       ),
     }));
   }
 
-  return apiFetch<{ column: Column; cards: Task[] }[]>(`/projects/${projectId}/board`);
+  const response = await apiFetch<{ column: BackendColumnResponse; cards: BackendCardResponse[] }[]>(
+      `/projects/${projectId}/board`
+  );
+
+  return response.map(item => ({
+    column: {
+      id: item.column.id,
+      title: item.column.title,
+      status: inferStatusFromColumn(item.column.title),
+      order: item.column.order,
+      project_id: item.column.project_id,
+    },
+    cards: item.cards.map(card => mapBackendCardToTask(card, projectId, item.column.title)),
+  }));
 }
 
 // ============================================
@@ -85,7 +298,45 @@ export async function getBoard(projectId: number): Promise<{ column: Column; car
 // ============================================
 
 /**
- * 프로젝트의 태스크 목록 조회
+ * 프로젝트의 모든 카드 조회 (컬럼 유무 상관없이)
+ * GET /api/projects/{project_id}/cards
+ */
+export async function getAllCards(projectId: number): Promise<Task[]> {
+  if (API_CONFIG.USE_MOCK) {
+    await mockDelay(300);
+    return MOCK_TASKS.filter(t => t.boardId === projectId || projectId === 1);
+  }
+
+  const response = await apiFetch<BackendCardResponse[]>(
+      `/projects/${projectId}/cards`
+  );
+
+  return response.map(card => mapBackendCardToTask(card, projectId, 'backlog'));
+}
+
+/**
+ * 프로젝트의 보드 카드 조회 (컬럼에 속한 카드만)
+ * GET /api/projects/{project_id}/board
+ */
+export async function getBoardCards(projectId: number): Promise<Task[]> {
+  if (API_CONFIG.USE_MOCK) {
+    await mockDelay(300);
+    return MOCK_TASKS.filter(t => t.boardId === projectId || projectId === 1);
+  }
+
+  const response = await apiFetch<{ column: BackendColumnResponse; cards: BackendCardResponse[] }[]>(
+      `/projects/${projectId}/board`
+  );
+
+  // 모든 컬럼의 카드를 Task로 변환하여 반환
+  return response.flatMap(item =>
+      item.cards.map(card => mapBackendCardToTask(card, projectId, item.column.title))
+  );
+}
+
+/**
+ * 프로젝트의 태스크 목록 조회 (모든 카드 - 중복 제거)
+ * 컬럼에 속한 카드 + 컬럼 없는 카드 모두 포함
  */
 export async function getTasks(projectId: number): Promise<Task[]> {
   if (API_CONFIG.USE_MOCK) {
@@ -93,11 +344,27 @@ export async function getTasks(projectId: number): Promise<Task[]> {
     return MOCK_TASKS.filter(t => t.boardId === projectId || projectId === 1);
   }
 
-  // 실제 API: 프로젝트의 보드 데이터 조회 후 카드 추출
-  const response = await apiFetch<{ column: unknown; cards: Task[] }[]>(
+  // 모든 카드 조회 (컬럼 유무 상관없이)
+  const allCards = await apiFetch<BackendCardResponse[]>(
+      `/projects/${projectId}/cards`
+  );
+
+  // 보드 데이터도 조회 (컬럼 정보를 얻기 위해)
+  const boardData = await apiFetch<{ column: BackendColumnResponse; cards: BackendCardResponse[] }[]>(
       `/projects/${projectId}/board`
   );
-  return response.flatMap(col => col.cards);
+
+  // 컬럼 ID → 컬럼 제목 매핑 생성
+  const columnTitleMap = new Map<number, string>();
+  boardData.forEach(item => {
+    columnTitleMap.set(item.column.id, item.column.title);
+  });
+
+  // 모든 카드를 Task로 변환 (컬럼 제목 매핑 적용)
+  return allCards.map(card => {
+    const columnTitle = card.column_id ? columnTitleMap.get(card.column_id) || 'backlog' : 'backlog';
+    return mapBackendCardToTask(card, projectId, columnTitle);
+  });
 }
 
 /**
@@ -113,14 +380,19 @@ export async function getTask(taskId: number): Promise<Task> {
     return task;
   }
 
-  return apiFetch<Task>(`/cards/${taskId}`);
+  const response = await apiFetch<BackendCardResponse>(`/cards/${taskId}`);
+
+  // 단일 카드 조회 시 컬럼 정보가 없으므로 기본 상태 사용
+  return mapBackendCardToTask(response, response.column_id, 'todo');
 }
 
 /**
  * 태스크 생성
+ * @param projectId - 프로젝트 ID (boardId)
+ * @param task - 생성할 태스크 데이터 (column_id 포함)
  */
 export async function createTask(
-    columnId: number,
+    projectId: number,
     task: Omit<Task, 'id'>
 ): Promise<Task> {
   if (API_CONFIG.USE_MOCK) {
@@ -128,19 +400,28 @@ export async function createTask(
     return {
       ...task,
       id: Date.now(),
-    };
+      status: task.status || 'todo',
+    } as Task;
   }
 
-  return apiFetch<Task>(`/columns/${columnId}/cards`, {
+  // 백엔드: POST /api/projects/{project_id}/cards
+  const response = await apiFetch<BackendCardResponse>(`/projects/${projectId}/cards`, {
     method: 'POST',
     body: JSON.stringify({
       title: task.title,
       content: task.content || task.description,
+      column_id: task.column_id || null,  // 컬럼 ID는 body에 포함
+      order: 0,
       x: task.x,
       y: task.y,
       assignee_ids: task.assignees?.map(a => a.id) || [],
+      start_date: task.start_date,
+      due_date: task.due_date,
+      card_type: task.taskType === 0 ? 'task' : task.taskType === 1 ? 'memo' : 'task',
     }),
   });
+
+  return mapBackendCardToTask(response, projectId, 'todo');
 }
 
 /**
@@ -159,17 +440,30 @@ export async function updateTask(
     return { ...task, ...updates };
   }
 
-  return apiFetch<Task>(`/cards/${taskId}`, {
+  // 백엔드 형식으로 변환
+  const payload: Record<string, unknown> = {};
+
+  if (updates.title !== undefined) payload.title = updates.title;
+  if (updates.content !== undefined) payload.content = updates.content;
+  if (updates.description !== undefined) payload.content = updates.description;
+  if (updates.x !== undefined) payload.x = updates.x;
+  if (updates.y !== undefined) payload.y = updates.y;
+  if (updates.column_id !== undefined) payload.column_id = updates.column_id;
+  if (updates.assignees !== undefined) {
+    payload.assignee_ids = updates.assignees.map(a => a.id);
+  }
+  if (updates.start_date !== undefined) payload.start_date = updates.start_date;
+  if (updates.due_date !== undefined) payload.due_date = updates.due_date;
+  if (updates.taskType !== undefined) {
+    payload.card_type = updates.taskType === 0 ? 'task' : 'memo';
+  }
+
+  const response = await apiFetch<BackendCardResponse>(`/cards/${taskId}`, {
     method: 'PATCH',
-    body: JSON.stringify({
-      title: updates.title,
-      content: updates.content || updates.description,
-      x: updates.x,
-      y: updates.y,
-      column_id: updates.column_id,
-      assignee_ids: updates.assignees?.map(a => a.id),
-    }),
+    body: JSON.stringify(payload),
   });
+
+  return mapBackendCardToTask(response, updates.boardId || response.column_id, 'todo');
 }
 
 /**
@@ -285,7 +579,16 @@ export async function getConnections(projectId: number): Promise<Connection[]> {
     return MOCK_CONNECTIONS.filter(c => c.boardId === projectId || projectId === 1);
   }
 
-  return apiFetch<Connection[]>(`/projects/${projectId}/connections`);
+  const response = await apiFetch<BackendConnectionResponse[]>(`/projects/${projectId}/connections`);
+
+  return response.map(conn => ({
+    id: conn.id,
+    from: conn.from,
+    to: conn.to,
+    boardId: conn.boardId,
+    style: conn.style as 'solid' | 'dashed',
+    shape: conn.shape as 'bezier' | 'straight',
+  }));
 }
 
 /**
@@ -303,10 +606,25 @@ export async function createConnection(
     };
   }
 
-  return apiFetch<Connection>(`/projects/${projectId}/connections`, {
+  // 백엔드는 from_card_id, to_card_id로 받음 (alias: from, to)
+  const response = await apiFetch<BackendConnectionResponse>(`/cards/connections`, {
     method: 'POST',
-    body: JSON.stringify(connection),
+    body: JSON.stringify({
+      from: connection.from,  // 백엔드 스키마에서 alias="from"으로 받음
+      to: connection.to,      // 백엔드 스키마에서 alias="to"로 받음
+      style: connection.style || 'solid',
+      shape: connection.shape || 'bezier',
+    }),
   });
+
+  return {
+    id: response.id,
+    from: response.from,
+    to: response.to,
+    boardId: response.boardId || projectId,
+    style: response.style as 'solid' | 'dashed',
+    shape: response.shape as 'bezier' | 'straight',
+  };
 }
 
 /**
@@ -321,13 +639,31 @@ export async function deleteConnection(
     return;
   }
 
-  const conn = MOCK_CONNECTIONS.find(c => c.id === connectionId);
-  if (conn) {
-    await apiFetch<void>(`/projects/${projectId}/connections`, {
-      method: 'DELETE',
-      body: JSON.stringify({ from: conn.from, to: conn.to }),
-    });
+  await apiFetch<void>(`/cards/connections/${connectionId}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * 연결선 업데이트
+ */
+export async function updateConnection(
+    connectionId: number,
+    updates: Partial<Connection>
+): Promise<Connection> {
+  if (API_CONFIG.USE_MOCK) {
+    await mockDelay(200);
+    const conn = MOCK_CONNECTIONS.find(c => c.id === connectionId);
+    if (!conn) {
+      throw new Error('연결선을 찾을 수 없습니다.');
+    }
+    return { ...conn, ...updates };
   }
+
+  // 현재 백엔드에 PATCH API가 없으므로 삭제 후 재생성하거나
+  // 로컬에서만 처리 (추후 백엔드 API 추가 시 수정)
+  console.warn('Connection update API not implemented on backend');
+  throw new Error('연결선 업데이트 API가 구현되지 않았습니다.');
 }
 
 // ============================================
@@ -387,33 +723,6 @@ export async function stopEditingCard(cardId: number): Promise<void> {
 
   await apiFetch<void>(`/cards/${cardId}/editing`, {
     method: 'DELETE',
-  });
-}
-
-// ============================================
-// 헬퍼 함수
-// ============================================
-
-/**
- * 타임스탬프를 읽기 쉬운 형식으로 변환
- */
-function formatTimestamp(isoString: string): string {
-  const date = new Date(isoString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return '방금 전';
-  if (diffMins < 60) return `${diffMins}분 전`;
-  if (diffHours < 24) return `${diffHours}시간 전`;
-  if (diffDays < 7) return `${diffDays}일 전`;
-
-  return date.toLocaleDateString('ko-KR', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
   });
 }
 

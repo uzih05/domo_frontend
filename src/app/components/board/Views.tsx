@@ -1,23 +1,34 @@
-
 'use client';
 
 import React, { useState, useRef } from 'react';
 import { Task } from '../../../types';
 import { getStickyStyle } from '../../../lib/utils/canvas';
+import { logout } from '../../../lib/api';
 import { updateProfileImage, updateMyInfo } from '../../../lib/api/user';
 import {
-  Settings, Sun, Moon, Bell, Shield, ChevronRight, Mail, LogOut, StretchHorizontal, ChevronLeft, User, Clock, MoreVertical, Plus, ChevronDown, Camera
+  Settings, Sun, Moon, Bell, Shield, ChevronRight, Mail, LogOut, StretchHorizontal, ChevronLeft, User, Clock, MoreVertical, ChevronDown, Camera, Loader2
 } from 'lucide-react';
 
-export const SettingsView = ({ initialTab = 'profile' }: { initialTab?: 'profile' | 'preferences' }) => {
+interface SettingsViewProps {
+  initialTab?: 'profile' | 'preferences';
+  onLogout?: () => void;
+  user?: {
+    name: string;
+    email: string;
+    profile_image?: string | null;
+  };
+}
+
+export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'profile', onLogout, user }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences'>(initialTab);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   React.useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
 
-  const [profileImage, setProfileImage] = useState<string | null>(null);
-  const [userName, setUserName] = useState('User Name');
+  const [profileImage, setProfileImage] = useState<string | null>(user?.profile_image || null);
+  const [userName, setUserName] = useState(user?.name || 'User Name');
   const [isEditingName, setIsEditingName] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +56,27 @@ export const SettingsView = ({ initialTab = 'profile' }: { initialTab?: 'profile
       alert('이름 수정에 실패했습니다.');
     }
   };
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      if (onLogout) {
+        onLogout();
+      } else {
+        window.location.href = '/';
+      }
+    } catch (error) {
+      console.error('Logout failed:', error);
+      alert('로그아웃에 실패했습니다.');
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
+  const displayEmail = user?.email || 'user@example.com';
 
   return (
     <div className="flex-1 overflow-hidden flex animate-in fade-in duration-300">
@@ -93,7 +125,7 @@ export const SettingsView = ({ initialTab = 'profile' }: { initialTab?: 'profile
                     <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
                   ) : (
                     <>
-                      US
+                      {userName.slice(0, 2).toUpperCase()}
                       <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Camera size={32} className="text-white" />
                       </div>
@@ -143,8 +175,6 @@ export const SettingsView = ({ initialTab = 'profile' }: { initialTab?: 'profile
                     )}
                   </div>
 
-
-
                   <div className="flex items-center gap-2 mb-2 text-sm text-gray-600 dark:text-gray-300">
                     <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
                     <span>온라인</span>
@@ -184,10 +214,9 @@ export const SettingsView = ({ initialTab = 'profile' }: { initialTab?: 'profile
                   </div>
                   <div>
                     <div className="text-xs font-bold text-gray-500 mb-0.5">이메일 주소</div>
-                    <div className="text-blue-500 hover:underline cursor-pointer text-sm">user@example.com</div>
+                    <div className="text-blue-500 hover:underline cursor-pointer text-sm">{displayEmail}</div>
                   </div>
                 </div>
-
               </div>
 
               {/* About Me */}
@@ -196,7 +225,6 @@ export const SettingsView = ({ initialTab = 'profile' }: { initialTab?: 'profile
                   <h3 className="font-bold text-gray-900 dark:text-white">내 소개</h3>
                   <button className="text-sm font-bold text-blue-500 hover:text-blue-600 dark:hover:text-blue-400">편집</button>
                 </div>
-
               </div>
             </div>
           </div>
@@ -258,8 +286,16 @@ export const SettingsView = ({ initialTab = 'profile' }: { initialTab?: 'profile
                   <div className="font-bold text-gray-900 dark:text-white">지원 문의</div>
                   <div className="text-xs text-gray-500 mt-1">도움이 필요하신가요?</div>
                 </button>
-                <button className="p-4 bg-white dark:bg-[#1E212B] border border-gray-200 dark:border-gray-700/50 rounded-xl text-left hover:border-red-500 transition-colors group">
-                  <LogOut className="mb-3 text-gray-400 group-hover:text-red-500 transition-colors" size={24} />
+                <button
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="p-4 bg-white dark:bg-[#1E212B] border border-gray-200 dark:border-gray-700/50 rounded-xl text-left hover:border-red-500 transition-colors group"
+                >
+                  {isLoggingOut ? (
+                    <Loader2 className="mb-3 text-gray-400 animate-spin" size={24} />
+                  ) : (
+                    <LogOut className="mb-3 text-gray-400 group-hover:text-red-500 transition-colors" size={24} />
+                  )}
                   <div className="font-bold text-gray-900 dark:text-white group-hover:text-red-500">로그아웃</div>
                   <div className="text-xs text-gray-500 mt-1">계정에서 로그아웃합니다.</div>
                 </button>
@@ -392,7 +428,6 @@ export const TimelineView = ({ tasks, onTaskSelect }: { tasks: Task[], onTaskSel
           {tasks.map(task => {
             const pos = getTaskPosition(task);
             const isCustom = task.color?.startsWith('#');
-            // String(...) 으로 감싸서 "무조건 문자로 바꿔서 줄게!" 라고 안심시키기
             const stickyColor = !isCustom ? getStickyStyle(String(task.id), task.color) : null;
             return (
               <div key={task.id} className="flex hover:bg-gray-50 dark:hover:bg-white/5 transition-colors border-b border-gray-100 dark:border-gray-800/50 group/row">

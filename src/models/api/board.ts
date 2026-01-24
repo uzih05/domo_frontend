@@ -262,6 +262,17 @@ export async function getColumns(projectId: number): Promise<Column[]> {
     status: inferStatusFromColumn(col.title),
     order: col.order,
     project_id: col.project_id,
+    // 위치 & 크기 (백엔드에서 받은 값 그대로 전달)
+    localX: col.localX,
+    localY: col.localY,
+    width: col.width,
+    height: col.height,
+    // 계층 구조
+    parentId: col.parentId,
+    depth: col.depth,
+    // 스타일
+    color: col.color,
+    collapsed: col.collapsed,
   }));
 }
 
@@ -270,7 +281,14 @@ export async function getColumns(projectId: number): Promise<Column[]> {
  */
 export async function createColumn(
     projectId: number,
-    data: { title: string; order?: number }
+    data: {
+      title: string;
+      order?: number;
+      localX?: number;
+      localY?: number;
+      width?: number;
+      height?: number;
+    }
 ): Promise<Column> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(200);
@@ -295,6 +313,14 @@ export async function createColumn(
     status: inferStatusFromColumn(response.title),
     order: response.order,
     project_id: response.project_id,
+    localX: response.localX,
+    localY: response.localY,
+    width: response.width,
+    height: response.height,
+    parentId: response.parentId,
+    depth: response.depth,
+    color: response.color,
+    collapsed: response.collapsed,
   };
 }
 

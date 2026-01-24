@@ -39,6 +39,8 @@ interface BoardCanvasProps {
     onToggleTheme: () => void;
     // 파일 드롭 관련
     onFileDropOnCard?: (cardId: number, fileId: number) => Promise<void>;
+    onNativeFileDrop?: (cardId: number, files: File[]) => Promise<void>;
+    onBackgroundFileDrop?: (files: File[]) => Promise<void>;
 }
 
 const COLUMN_WIDTH = 350;
@@ -56,7 +58,7 @@ const GRID_CONFIG: Partial<GridConfig> = {
 };
 
 export const BoardCanvas: React.FC<BoardCanvasProps> = ({
-                                                            tasks, connections, columns, onTasksUpdate, onTaskSelect, onTaskCreate, onTaskUpdate, onTaskDelete, onMoveTaskToColumn, onConnectionCreate, onConnectionDelete, onConnectionUpdate, boards, activeBoardId, onSwitchBoard, onAddBoard, onRenameBoard, snapToGrid, groups, onGroupsUpdate, onGroupMove, onGroupDelete, onToggleGrid, onToggleTheme, onFileDropOnCard
+                                                            tasks, connections, columns, onTasksUpdate, onTaskSelect, onTaskCreate, onTaskUpdate, onTaskDelete, onMoveTaskToColumn, onConnectionCreate, onConnectionDelete, onConnectionUpdate, boards, activeBoardId, onSwitchBoard, onAddBoard, onRenameBoard, snapToGrid, groups, onGroupsUpdate, onGroupMove, onGroupDelete, onToggleGrid, onToggleTheme, onFileDropOnCard, onNativeFileDrop, onBackgroundFileDrop
                                                         }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const boardSelectorRef = useRef<HTMLDivElement>(null);
@@ -114,6 +116,33 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
     const [isCreatingTask, setIsCreatingTask] = useState(false);
     const [isSavingPosition, setIsSavingPosition] = useState(false);
     const [isDeletingTask, setIsDeletingTask] = useState(false);
+
+    // 우클릭 팬 상태
+    const [panState, setPanState] = useState<{
+        startX: number;
+        startY: number;
+        scrollStartX: number;
+        scrollStartY: number;
+        hasMoved: boolean;
+    } | null>(null);
+
+    // 호버된 연결선 끝점 (드래그 가능 표시)
+    const [hoveredEndpoint, setHoveredEndpoint] = useState<{
+        connectionId: number;
+        endpoint: 'source' | 'target';
+        x: number;
+        y: number;
+    } | null>(null);
+
+    // 카드 드래그 대기 상태 (threshold 적용)
+    const [pendingCardDrag, setPendingCardDrag] = useState<{
+        taskId: number;
+        startX: number;
+        startY: number;
+        cardRect: DOMRect;
+    } | null>(null);
+
+    const CARD_DRAG_THRESHOLD = 8; // 8px 이상 이동해야 드래그 시작
 
     // ✅ useSortableGrid 훅 사용 - 그룹 내 카드 정렬용
     const {
@@ -309,9 +338,10 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
 
                 const isSelected = activeMenu?.id === conn.id;
                 const arrowPath = getArrowPath(endX, endY, targetHandle);
+                const isHovered = hoveredEndpoint?.connectionId === conn.id;
 
                 newLines.push(
-                    <g key={conn.id} className="group/line">
+                    <g key={conn.id}>
                         {/* 투명한 넓은 히트 영역 - 드래그 및 컨텍스트 메뉴용 */}
                         <path
                             d={pathString}
@@ -320,11 +350,36 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                             strokeWidth="20"
                             strokeLinecap="round"
                             className="cursor-grab pointer-events-auto"
+                            onPointerMove={(evt) => {
+                                const distToStart = Math.hypot(
+                                    evt.clientX - (fromRect.left + (sourceHandle === 'left' ? 0 : fromRect.width)),
+                                    evt.clientY - (fromRect.top + fromRect.height / 2)
+                                );
+                                const distToEnd = Math.hypot(
+                                    evt.clientX - (toRect.left + (targetHandle === 'left' ? 0 : toRect.width)),
+                                    evt.clientY - (toRect.top + toRect.height / 2)
+                                );
+
+                                if (distToStart < distToEnd) {
+                                    setHoveredEndpoint({ connectionId: conn.id, endpoint: 'source', x: startX, y: startY });
+                                } else {
+                                    setHoveredEndpoint({ connectionId: conn.id, endpoint: 'target', x: endX, y: endY });
+                                }
+                            }}
+                            onPointerLeave={() => setHoveredEndpoint(null)}
                             onPointerDown={(evt) => {
-                                // 드래그 시작 - 마우스 위치와 가까운 끝점 감지
                                 evt.stopPropagation();
-                                const distToStart = Math.hypot(evt.clientX - (fromRect.left + (sourceHandle === 'left' ? 0 : fromRect.width)), evt.clientY - (fromRect.top + fromRect.height / 2));
-                                const distToEnd = Math.hypot(evt.clientX - (toRect.left + (targetHandle === 'left' ? 0 : toRect.width)), evt.clientY - (toRect.top + toRect.height / 2));
+                                setHoveredEndpoint(null);
+
+                                // 마우스 위치와 가까운 끝점 계산
+                                const distToStart = Math.hypot(
+                                    evt.clientX - (fromRect.left + (sourceHandle === 'left' ? 0 : fromRect.width)),
+                                    evt.clientY - (fromRect.top + fromRect.height / 2)
+                                );
+                                const distToEnd = Math.hypot(
+                                    evt.clientX - (toRect.left + (targetHandle === 'left' ? 0 : toRect.width)),
+                                    evt.clientY - (toRect.top + toRect.height / 2)
+                                );
 
                                 if (distToStart < distToEnd) {
                                     handleConnectionEndpointDragStart(evt, conn, 'source', startX, startY);
@@ -347,13 +402,31 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                             }}
                         />
                         {/* 실제 보이는 연결선 */}
-                        <path d={pathString} fill="none" stroke={isSelected ? "#0a84ff" : "rgba(128,128,128,0.4)"} strokeWidth="2" strokeLinecap="round" strokeDasharray={conn.style === 'dashed' ? "8,4" : "none"} className="transition-all duration-300 pointer-events-none group-hover/line:stroke-blue-400 group-hover/line:stroke-[3px]" />
+                        <path
+                            d={pathString}
+                            fill="none"
+                            stroke={isSelected || isHovered ? "#3b82f6" : "rgba(128,128,128,0.4)"}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeDasharray={conn.style === 'dashed' ? "8,4" : "none"}
+                            className="pointer-events-none transition-colors duration-150"
+                        />
 
-                        {/* Source 끝점 표시 (드래그 핸들 아님, 시각적 표시만) */}
-                        <circle cx={startX} cy={startY} r="3" fill="rgba(128,128,128,0.5)" className="pointer-events-none group-hover/line:fill-blue-400" />
+                        {/* Source 끝점 - 기본 상태 */}
+                        <circle
+                            cx={startX}
+                            cy={startY}
+                            r="3"
+                            fill="rgba(128,128,128,0.5)"
+                            className="pointer-events-none"
+                        />
 
-                        {/* Target 끝점 화살표 */}
-                        <path d={arrowPath} fill="rgba(128,128,128,0.5)" className="pointer-events-none group-hover/line:fill-blue-400" />
+                        {/* Target 화살표 */}
+                        <path
+                            d={arrowPath}
+                            fill={isSelected || isHovered ? "#3b82f6" : "rgba(128,128,128,0.5)"}
+                            className="pointer-events-none transition-colors duration-150"
+                        />
                     </g>
                 );
             }
@@ -472,7 +545,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             x, y,
             tags: [],
             boardId: activeBoardId,
-            column_id: undefined,  // 자유 배치 (그룹에 귀속 안 함)
+            column_id: null,  // 명시적 null = 자유 배치 (그룹에 귀속 안 함)
         };
 
         if (onTaskCreate) {
@@ -558,31 +631,67 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
 
     // ✅ 카드 드래그 시작 핸들러 (그룹 내 카드용 - SortableGrid 사용)
     const handleSortableCardDragStart = useCallback((taskId: number, e: React.PointerEvent) => {
+        // 우클릭은 무시 (팬 전용)
+        if (e.button === 2) return;
+
         const cardEl = document.getElementById(`task-${taskId}`);
         if (!cardEl) return;
 
         const cardRect = cardEl.getBoundingClientRect();
-        startDrag(taskId, e.clientX, e.clientY, cardRect);
 
-        // 드래그 중인 카드의 초기 위치
-        if (containerRef.current) {
-            const container = containerRef.current;
-            const rect = container.getBoundingClientRect();
-            setSortableDragPos({
-                x: e.clientX - rect.left + container.scrollLeft - (e.clientX - cardRect.left),
-                y: e.clientY - rect.top + container.scrollTop - (e.clientY - cardRect.top),
-            });
-        }
-    }, [startDrag]);
+        // 즉시 드래그 시작하지 않고 pending 상태로 저장
+        setPendingCardDrag({
+            taskId,
+            startX: e.clientX,
+            startY: e.clientY,
+            cardRect
+        });
+
+        // PointerCapture 설정
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }, []);
+
+    // pending 드래그를 실제 드래그로 전환
+    const activatePendingDrag = useCallback((clientX: number, clientY: number) => {
+        if (!pendingCardDrag || !containerRef.current) return;
+
+        const { taskId, cardRect } = pendingCardDrag;
+
+        startDrag(taskId, pendingCardDrag.startX, pendingCardDrag.startY, cardRect);
+
+        const container = containerRef.current;
+        const rect = container.getBoundingClientRect();
+        setSortableDragPos({
+            x: clientX - rect.left + container.scrollLeft - (clientX - cardRect.left),
+            y: clientY - rect.top + container.scrollTop - (clientY - cardRect.top),
+        });
+
+        setPendingCardDrag(null);
+    }, [pendingCardDrag, startDrag]);
 
     // 그룹 또는 자유 카드 드래그 시작
     const handlePointerDown = (e: React.PointerEvent, task?: Task, group?: Group) => {
-        if (e.button === 2) return;
         if (!containerRef.current) return;
         const container = containerRef.current;
         const rect = container.getBoundingClientRect();
         const x = e.clientX - rect.left + container.scrollLeft;
         const y = e.clientY - rect.top + container.scrollTop;
+
+        // 우클릭 팬 시작
+        if (e.button === 2) {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+            setPanState({
+                startX: e.clientX,
+                startY: e.clientY,
+                scrollStartX: container.scrollLeft,
+                scrollStartY: container.scrollTop,
+                hasMoved: false
+            });
+            setActiveMenu(null);
+            setBackgroundMenu(null);
+            return;
+        }
 
         if (e.ctrlKey) {
             e.preventDefault();
@@ -753,6 +862,36 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
         const y = e.clientY - rect.top + container.scrollTop;
         mousePosRef.current = { x, y };
 
+        // 우클릭 팬 처리
+        if (panState) {
+            const deltaX = e.clientX - panState.startX;
+            const deltaY = e.clientY - panState.startY;
+            const moveThreshold = 5;
+
+            // 일정 거리 이상 이동 시 팬 모드 확정
+            if (!panState.hasMoved && (Math.abs(deltaX) > moveThreshold || Math.abs(deltaY) > moveThreshold)) {
+                setPanState(prev => prev ? { ...prev, hasMoved: true } : null);
+            }
+
+            // 스크롤 적용 (반대 방향으로 이동해야 자연스러움)
+            container.scrollLeft = panState.scrollStartX - deltaX;
+            container.scrollTop = panState.scrollStartY - deltaY;
+            return;
+        }
+
+        // 카드 드래그 pending 상태 체크 (threshold 적용)
+        if (pendingCardDrag) {
+            const deltaX = e.clientX - pendingCardDrag.startX;
+            const deltaY = e.clientY - pendingCardDrag.startY;
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+            if (distance >= CARD_DRAG_THRESHOLD) {
+                // threshold 초과 시 실제 드래그 시작
+                activatePendingDrag(e.clientX, e.clientY);
+            }
+            return;
+        }
+
         // ✅ SortableGrid 드래그 중
         if (dragContext) {
             const newPos = updateDrag(e.clientX, e.clientY, container.scrollLeft - rect.left, container.scrollTop - rect.top);
@@ -822,7 +961,35 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
         }
     };
 
-    const handlePointerUp = async () => {
+    const handlePointerUp = async (e: React.PointerEvent) => {
+        // 카드 드래그 pending 상태 해제 (threshold 미달 = 단순 클릭, 아무 동작 안 함)
+        if (pendingCardDrag) {
+            setPendingCardDrag(null);
+            return;
+        }
+
+        // 우클릭 팬 종료
+        if (panState) {
+            const wasPanning = panState.hasMoved;
+            setPanState(null);
+
+            // 팬 동작이 없었으면 (제자리 우클릭) 컨텍스트 메뉴 표시
+            if (!wasPanning && containerRef.current) {
+                const container = containerRef.current;
+                const rect = container.getBoundingClientRect();
+                const x = e.clientX - rect.left + container.scrollLeft;
+                const y = e.clientY - rect.top + container.scrollTop;
+                const taskEl = (e.target as HTMLElement).closest('[id^="task-"]');
+                let targetTaskId: number | undefined;
+                if (taskEl) {
+                    const match = taskEl.id.match(/^task-(\d+)$/);
+                    if (match) targetTaskId = parseInt(match[1], 10);
+                }
+                setBackgroundMenu({ x, y, taskX: x, taskY: y, targetTaskId });
+            }
+            return;
+        }
+
         // ✅ SortableGrid 드래그 종료 - 현재 드래그 위치 전달
         if (dragContext) {
             await endDrag(sortableDragPos ?? undefined);
@@ -929,6 +1096,8 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
 
     const handleBackgroundContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
+        // 팬 모드 중이면 컨텍스트 메뉴 표시하지 않음 (handlePointerUp에서 처리)
+        if (panState) return;
         if (!containerRef.current) return;
         const container = containerRef.current;
         const rect = container.getBoundingClientRect();
@@ -991,12 +1160,22 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             {/* Canvas */}
             <div
                 ref={containerRef}
-                className="flex-1 overflow-auto relative custom-scrollbar w-full h-full bg-[radial-gradient(rgba(0,0,0,0.05)_1px,transparent_1px)] dark:bg-[radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[length:24px_24px]"
+                className={`flex-1 overflow-auto relative custom-scrollbar w-full h-full bg-[radial-gradient(rgba(0,0,0,0.05)_1px,transparent_1px)] dark:bg-[radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[length:24px_24px] ${panState ? 'cursor-grabbing' : ''}`}
                 onContextMenu={handleBackgroundContextMenu}
                 onPointerDown={(evt) => handlePointerDown(evt)}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerUp}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // 네이티브 파일이 배경에 드롭된 경우
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        const files = Array.from(e.dataTransfer.files);
+                        onBackgroundFileDrop?.(files);
+                    }
+                }}
             >
                 {/* ========== 레이어 1: 그룹 배경 (z-0) ========== */}
                 {groups.map(group => {
@@ -1085,6 +1264,12 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                                             }
                                             setFileDropTargetCardId(null);
                                         }}
+                                        onNativeFileDrop={async (taskId, files) => {
+                                            if (onNativeFileDrop) {
+                                                await onNativeFileDrop(taskId, files);
+                                            }
+                                            setFileDropTargetCardId(null);
+                                        }}
                                         onStatusChange={async (taskId, newStatus) => {
                                             const targetColumn = sortedColumns.find(col => col.status === newStatus);
                                             if (targetColumn && onTaskUpdate) {
@@ -1159,6 +1344,12 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                             }
                             setFileDropTargetCardId(null);
                         }}
+                        onNativeFileDrop={async (taskId, files) => {
+                            if (onNativeFileDrop) {
+                                await onNativeFileDrop(taskId, files);
+                            }
+                            setFileDropTargetCardId(null);
+                        }}
                         onStatusChange={async (taskId, newStatus) => {
                             const targetColumn = sortedColumns.find(col => col.status === newStatus);
                             if (targetColumn && onTaskUpdate) {
@@ -1174,6 +1365,31 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                         }}
                     />
                 ))}
+
+                {/* ========== 레이어 4: 호버된 연결선 끝점 (z-30, 카드 위) ========== */}
+                {hoveredEndpoint && (
+                    <svg
+                        className="absolute top-0 left-0 pointer-events-none z-30"
+                        style={{ width: Math.max(svgSize.width, 2000), height: Math.max(svgSize.height, 2000) }}
+                    >
+                        {/* 외곽 테두리 */}
+                        <circle
+                            cx={hoveredEndpoint.x}
+                            cy={hoveredEndpoint.y}
+                            r="8"
+                            fill="rgba(59, 130, 246, 0.15)"
+                            stroke="#3b82f6"
+                            strokeWidth="2"
+                        />
+                        {/* 내부 점 */}
+                        <circle
+                            cx={hoveredEndpoint.x}
+                            cy={hoveredEndpoint.y}
+                            r="3"
+                            fill="#3b82f6"
+                        />
+                    </svg>
+                )}
 
                 {selectionBox && (
                     <div className="absolute border-2 border-blue-500/50 bg-blue-500/10 rounded-xl z-50 pointer-events-none backdrop-blur-sm" style={{ left: Math.min(selectionBox.startX, selectionBox.currX), top: Math.min(selectionBox.startY, selectionBox.currY), width: Math.abs(selectionBox.currX - selectionBox.startX), height: Math.abs(selectionBox.currY - selectionBox.startY) }} />

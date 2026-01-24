@@ -136,6 +136,20 @@ export interface Column {
   status: TaskStatus;
   order: number;
   project_id: number;
+
+  // 위치 & 크기 (백엔드 BoardColumn 확장)
+  localX?: number;
+  localY?: number;
+  width?: number;
+  height?: number;
+
+  // 계층 구조
+  parentId?: number | null;
+  depth?: number;
+
+  // 스타일
+  color?: string;
+  collapsed?: boolean;
 }
 
 export interface Connection {

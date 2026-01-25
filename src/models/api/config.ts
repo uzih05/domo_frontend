@@ -2,13 +2,13 @@
 // API 설정
 // ============================================
 
-console.log("Current Env Check:", {
-  envValue: process.env.NEXT_PUBLIC_USE_MOCK,
-  isMock: process.env.NEXT_PUBLIC_USE_MOCK !== 'false'
-});
-
 export const API_CONFIG = {
-  BASE_URL: '/api' as string,  // 👈 as string 추가
+  // REST API: 프록시 경유
+  BASE_URL: '/api' as string,
+
+  // SSE/WebSocket: 개발환경에서 Next.js proxy 버퍼링 문제로 직접 연결 필요
+  REALTIME_URL: (process.env.NEXT_PUBLIC_API_URL || '/api') as string,
+
   USE_MOCK: process.env.NEXT_PUBLIC_USE_MOCK === 'true',
 } as const;
 
@@ -133,26 +133,30 @@ export function mockDelay(ms: number = 300): Promise<void> {
 }
 
 /**
- * API Base URL을 기반으로 WebSocket URL 생성
- * 예: http://localhost:9000/api -> ws://localhost:9000/ws
+ * WebSocket URL 생성
+ * REALTIME_URL 기반으로 ws/wss 프로토콜 변환
  */
 export function getWebSocketUrl(path: string): string {
-  let baseUrl = API_CONFIG.BASE_URL;
+  let baseUrl = API_CONFIG.REALTIME_URL;
 
-  // 1. 프로토콜 변환 (http -> ws, https -> wss)
+  // 상대경로인 경우 현재 호스트 기준으로 변환
+  if (baseUrl.startsWith('/')) {
+    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
+    baseUrl = `${protocol}//${host}${baseUrl}`;
+  }
+
+  // 프로토콜 변환 (http -> ws, https -> wss)
   if (baseUrl.startsWith('https')) {
     baseUrl = baseUrl.replace('https', 'wss');
-  } else {
+  } else if (baseUrl.startsWith('http')) {
     baseUrl = baseUrl.replace('http', 'ws');
   }
 
-  // 2. /api 접미사 제거 (백엔드 라우팅 구조에 따라 조정)
-  // 기존: http://locahost:9000/api
-  // 목표: ws://localhost:9000/ws/...
+  // /api 접미사 제거 (WebSocket은 /ws 경로 사용)
   if (baseUrl.endsWith('/api')) {
     baseUrl = baseUrl.slice(0, -4);
   }
 
-  // 3. 경로 결합
   return `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
 }

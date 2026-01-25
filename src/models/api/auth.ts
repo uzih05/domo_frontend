@@ -47,7 +47,8 @@ export async function login(email: string, password: string): Promise<LoginRespo
 export async function signup(
   email: string,
   password: string,
-  name: string
+  name: string,
+  nickname?: string
 ): Promise<SignupResponse> {
   if (API_CONFIG.USE_MOCK) {
     await mockDelay(600);
@@ -61,28 +62,31 @@ export async function signup(
       id: 999,
       email,
       name,
+      nickname,
       is_student_verified: false,
     };
   }
 
   // 백엔드: POST /api/auth/signup
-  // 요청: { email, password, name }
-  // 응답: UserResponse { id, email, name, is_student_verified, profile_image }
+  // 요청: { email, password, name, nickname }
+  // 응답: UserResponse { id, email, name, nickname, is_student_verified, profile_image }
   const response = await apiFetch<{
     id: number;
     email: string;
     name: string;
+    nickname?: string;
     is_student_verified: boolean;
     profile_image?: string;
   }>('/auth/signup', {
     method: 'POST',
-    body: JSON.stringify({ email, password, name }),
+    body: JSON.stringify({ email, password, name, nickname }),
   });
 
   return {
     id: response.id,
     email: response.email,
     name: response.name,
+    nickname: response.nickname,
     is_student_verified: response.is_student_verified,
   };
 }
@@ -142,6 +146,7 @@ export async function getCurrentUser(): Promise<User | null> {
       id: number;
       email: string;
       name: string;
+      nickname?: string;
       is_student_verified: boolean;
       profile_image?: string;
     }>('/users/me');
@@ -150,6 +155,7 @@ export async function getCurrentUser(): Promise<User | null> {
       id: response.id,
       email: response.email,
       name: response.name,
+      nickname: response.nickname,
       is_student_verified: response.is_student_verified,
       profile_image: response.profile_image,
     };

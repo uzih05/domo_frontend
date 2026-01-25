@@ -15,6 +15,7 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({ onSignupSuccess, onB
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [name, setName] = useState('');
+    const [nickname, setNickname] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +47,7 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({ onSignupSuccess, onB
         setIsLoading(true);
 
         try {
-            await signup(email, password, name);
+            await signup(email, password, name, nickname || undefined);
             onSignupSuccess(email);
         } catch (err) {
             setError(err instanceof Error ? err.message : '회원가입 중 오류가 발생했습니다.');
@@ -100,6 +101,20 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({ onSignupSuccess, onB
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                                 required
+                            />
+                        </div>
+
+                        {/* 닉네임 (선택) */}
+                        <div className="relative group">
+                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                <User size={20} className="text-gray-400 group-focus-within:text-purple-500 transition-colors" />
+                            </div>
+                            <input
+                                type="text"
+                                placeholder="닉네임 (선택)"
+                                className="w-full pl-12 pr-4 py-3.5 rounded-2xl text-sm font-medium transition-all"
+                                value={nickname}
+                                onChange={(e) => setNickname(e.target.value)}
                             />
                         </div>
 

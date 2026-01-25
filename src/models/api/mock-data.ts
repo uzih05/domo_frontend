@@ -8,6 +8,7 @@ import type {
   User,
   Column,
   Group,
+  Post,
 } from '../types';
 
 // ============================================
@@ -44,6 +45,7 @@ export const MOCK_CURRENT_USER: User = {
   id: 1,
   email: 'student@jj.ac.kr',
   name: '김도모',
+  nickname: '도모',
   is_student_verified: true,
   profile_image: null,
 };
@@ -321,6 +323,42 @@ export const MOCK_TODAY_TASKS: Task[] = [
 
 export const MOCK_EDITING_CARDS: EditingCard[] = [
   { id: 2, title: 'UI 디자인', user: '이협업' },
+];
+
+// ============================================
+// 게시판 목업 데이터
+// ============================================
+
+export const MOCK_POSTS: Post[] = [
+  {
+    id: 1,
+    project_id: 1,
+    user_id: 1,
+    title: 'DOMO 플랫폼 오픈 안내',
+    content: '안녕하세요, DOMO 플랫폼이 오픈되었습니다! 자유롭게 의견을 남겨주세요.',
+    created_at: new Date().toISOString(),
+    user: { id: 1, name: '김도모', nickname: '도모', email: 'student@jj.ac.kr' },
+    comments: [
+      {
+        id: 1,
+        post_id: 1,
+        user_id: 2,
+        content: '오픈 축하드립니다! UI가 정말 예쁘네요.',
+        created_at: new Date(Date.now() - 3600000).toISOString(),
+        user: { id: 2, name: '이협업', email: 'collab@jj.ac.kr' }
+      }
+    ]
+  },
+  {
+    id: 2,
+    project_id: 1,
+    user_id: 2,
+    title: '자유 게시판입니다',
+    content: '서로 인사 나누고 정보 공유해요!',
+    created_at: new Date(Date.now() - 86400000).toISOString(),
+    user: { id: 2, name: '이협업', email: 'collab@jj.ac.kr' },
+    comments: []
+  }
 ];
 
 // ============================================

@@ -35,9 +35,12 @@ import {
     Activity,
     LayoutGrid,
     ChevronDown,
+    MessageSquare,
 } from 'lucide-react';
 import { Mascot } from '@/src/views/common';
 import { SettingsView } from '@/src/views/profile';
+import { CommunityBoard } from '@/src/views/community';
+import { getImageUrl } from '@/src/models/utils/image';
 
 // ==========================================
 // 프로필 카드 컴포넌트
@@ -86,7 +89,7 @@ function ProfileCard({ user, setUser }: { user: User; setUser: (u: User) => void
             <div className="relative mb-6 group">
                 <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-white dark:border-gray-700 shadow-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
                     {user.profile_image ? (
-                        <img src={user.profile_image} alt={user.name} className="w-full h-full object-cover" />
+                        <img src={getImageUrl(user.profile_image)} alt={user.name} className="w-full h-full object-cover" />
                     ) : (
                         <UserIcon size={48} className="text-gray-400" />
                     )}
@@ -382,7 +385,7 @@ function ProjectContextMenu({ project, position, onClose, onDelete }: ProjectCon
 // ==========================================
 // 메인 컴포넌트: WorkspaceHomeScreen
 // ==========================================
-type ViewState = 'projects' | 'mypage' | 'settings';
+type ViewState = 'projects' | 'mypage' | 'settings' | 'community';
 
 interface ProjectSelectScreenProps {
     workspace: Workspace;
@@ -441,27 +444,36 @@ export function ProjectSelectScreen({ workspace, user, onSelectProject, onBack, 
         fetchProjects();
     }, [workspace.id]);
 
-    // 마이페이지 데이터 로딩
+    // 초기 사용자 정보 로딩 (프로필 이미지 등)
     useEffect(() => {
-        if (currentView === 'mypage' && !fullUser) {
-            const fetchMyPageData = async () => {
+        const fetchUserInfo = async () => {
+            try {
+                const userData = await getMyInfo();
+                setFullUser(userData);
+            } catch (error) {
+                console.error('Failed to load user info:', error);
+            }
+        };
+        fetchUserInfo();
+    }, []);
+
+    // 마이페이지 데이터 로딩 (활동 로그)
+    useEffect(() => {
+        if (currentView === 'mypage' && !activities.length) {
+            const fetchActivities = async () => {
                 setMypageLoading(true);
                 try {
-                    const [userData, activityData] = await Promise.all([
-                        getMyInfo(),
-                        getMyActivities()
-                    ]);
-                    setFullUser(userData);
+                    const activityData = await getMyActivities();
                     setActivities(activityData);
                 } catch (error) {
-                    console.error('Failed to load mypage data:', error);
+                    console.error('Failed to load activities:', error);
                 } finally {
                     setMypageLoading(false);
                 }
             };
-            fetchMyPageData();
+            fetchActivities();
         }
-    }, [currentView, fullUser]);
+    }, [currentView, activities.length]);
 
     const handleLogout = async () => {
         try {
@@ -575,6 +587,18 @@ export function ProjectSelectScreen({ workspace, user, onSelectProject, onBack, 
                         <Settings size={20} />
                         <span>설정</span>
                     </button>
+
+                    <button
+                        onClick={() => setCurrentView('community')}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
+                            currentView === 'community'
+                                ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
+                                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                        }`}
+                    >
+                        <MessageSquare size={20} />
+                        <span>커뮤니티</span>
+                    </button>
                 </nav>
 
                 {/* 로그아웃 */}
@@ -607,8 +631,12 @@ export function ProjectSelectScreen({ workspace, user, onSelectProject, onBack, 
                                         onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
                                         className="flex items-center gap-3 px-4 py-2 bg-white dark:bg-gray-800 rounded-full shadow-sm hover:shadow-md transition-all"
                                     >
-                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold">
-                                            {user.name.charAt(0)}
+                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold overflow-hidden">
+                                            {fullUser?.profile_image ? (
+                                                <img src={getImageUrl(fullUser.profile_image)} alt={user.name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <UserIcon size={18} />
+                                            )}
                                         </div>
                                         <span className="text-sm font-medium text-gray-700 dark:text-gray-200">{user.name}</span>
                                         <ChevronDown size={16} className={`text-gray-400 transition-transform ${isProfileMenuOpen ? 'rotate-180' : ''}`} />
@@ -775,6 +803,13 @@ export function ProjectSelectScreen({ workspace, user, onSelectProject, onBack, 
                             onLogout={onLogout}
                             user={fullUser ? { name: fullUser.name, email: fullUser.email, profile_image: fullUser.profile_image } : { name: user.name, email: user.email }}
                         />
+                    </div>
+                )}
+
+                {/* 커뮤니티 뷰 */}
+                {currentView === 'community' && (
+                    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 h-full">
+                        <CommunityBoard viewType="grid" />
                     </div>
                 )}
             </main>

@@ -10,6 +10,7 @@ import { SettingsView } from '@/src/views/profile';
 import { TaskDetailModal } from '@/src/views/task';
 import { Mascot } from '@/src/views/common';
 import { Dock, FileListPanel } from '@/src/views/dock';
+import { CommunityBoard } from '@/src/views/community';
 
 import {
     getTasks,
@@ -33,7 +34,7 @@ import { subscribeOnlineMembers } from '@/src/models/api/workspace';
 
 import {
     LayoutGrid, Calendar as CalendarIcon, StretchHorizontal, Settings,
-    ChevronLeft, ChevronRight, ArrowLeft, Loader2, AlertCircle
+    ChevronLeft, ChevronRight, ArrowLeft, Loader2, AlertCircle, MessageSquare
 } from 'lucide-react';
 
 interface BoardScreenProps {
@@ -795,6 +796,13 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                             <StretchHorizontal size={20} strokeWidth={viewMode === 'timeline' ? 2.5 : 2} />
                             {sidebarOpen && <span className="font-medium">Timeline</span>}
                         </button>
+                        <button
+                            onClick={() => setViewMode('community')}
+                            className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all duration-200 ${viewMode === 'community' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' : 'text-gray-600 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/5'}`}
+                        >
+                            <MessageSquare size={20} strokeWidth={viewMode === 'community' ? 2.5 : 2} />
+                            {sidebarOpen && <span className="font-medium">Community</span>}
+                        </button>
                     </div>
 
                     <div className="p-4 mt-auto">
@@ -854,6 +862,7 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                     )}
                     {viewMode === 'calendar' && <CalendarView tasks={tasks} onTaskSelect={handleTaskSelect} />}
                     {viewMode === 'timeline' && <TimelineView tasks={tasks} onTaskSelect={handleTaskSelect} />}
+                    {viewMode === 'community' && <CommunityBoard projectId={project.id} viewType="table" />}
                     {viewMode === 'settings' && <SettingsView />}
                 </div>
             </div>

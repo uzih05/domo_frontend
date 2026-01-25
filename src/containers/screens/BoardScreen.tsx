@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+<<<<<<< HEAD:src/containers/screens/BoardScreen.tsx
 import { Project, Task, Connection, Board, Group, ViewMode, Column, FileMetadata, Member } from '@/src/models/types';
 import { BoardCanvas } from '@/src/views/board';
 import { CalendarView } from '@/src/views/calendar';
@@ -11,6 +12,16 @@ import { TaskDetailModal } from '@/src/views/task';
 import { Mascot } from '@/src/views/common';
 import { Dock, FileListPanel } from '@/src/views/dock';
 import { CommunityBoard } from '@/src/views/community';
+=======
+import { Project, Task, Connection, Board, Group, ViewMode, Column } from '@/src/types';
+import { BoardCanvas } from './BoardCanvas';
+import { CalendarView, TimelineView, SettingsView } from './Views';
+import { TaskDetailModal } from '../ui/TaskDetailModal';
+import { Mascot } from '../ui/Mascot';
+import { Dock } from '../dock/Dock';
+import { CommunityBoard } from '../community/CommunityBoard';
+import { MOCK_MEMBERS } from '@/src/lib/api/mock-data';
+>>>>>>> upstream/main:src/app/components/board/WorkspaceBoard.tsx
 
 import {
     getTasks,
@@ -33,7 +44,11 @@ import {
 import { subscribeOnlineMembers } from '@/src/models/api/workspace';
 
 import {
+<<<<<<< HEAD:src/containers/screens/BoardScreen.tsx
     LayoutGrid, Calendar as CalendarIcon, StretchHorizontal, Settings,
+=======
+    Trello, Calendar as CalendarIcon, StretchHorizontal, Settings,
+>>>>>>> upstream/main:src/app/components/board/WorkspaceBoard.tsx
     ChevronLeft, ChevronRight, ArrowLeft, Loader2, AlertCircle, MessageSquare
 } from 'lucide-react';
 

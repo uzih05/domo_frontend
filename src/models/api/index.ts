@@ -83,7 +83,11 @@ export {
   deleteNode,
 } from './board';
 
+<<<<<<< HEAD:src/models/api/index.ts
 // 게시판 API
+=======
+// 게시판 API (신규)
+>>>>>>> upstream/main:src/lib/api/index.ts
 export {
   getProjectPosts,
   getCommunityPosts,

@@ -1,7 +1,7 @@
 // src/containers/screens/BoardScreen.tsx
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Project, Task, Connection, Board, Group, ViewMode, Column, FileMetadata, Member } from '@/src/models/types';
 import { BoardCanvas } from '@/src/views/board';
 import { CalendarView } from '@/src/views/calendar';
@@ -29,7 +29,7 @@ import {
     getBoardMembers,
 } from '@/src/models/api';
 
-import { getOnlineMembers } from '@/src/models/api/workspace';
+import { subscribeOnlineMembers } from '@/src/models/api/workspace';
 
 import {
     LayoutGrid, Calendar as CalendarIcon, StretchHorizontal, Settings,
@@ -74,72 +74,47 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
     const [isSaving, setIsSaving] = useState(false);
     const [uploadingCardId, setUploadingCardId] = useState<number | null>(null);
 
-    // 온라인 멤버 폴링 ref
-    const onlinePollingRef = useRef<NodeJS.Timeout | null>(null);
+    // =========================================
+    // 멤버 및 온라인 상태 로딩 (SSE 구독 방식)
+    // =========================================
 
-    // =========================================
-    // 멤버 및 온라인 상태 로딩
-    // =========================================
-    const loadMembers = useCallback(async () => {
+    useEffect(() => {
         if (!project.workspace_id) return;
 
-        try {
-            // 1. 전체 멤버 목록 가져오기
-            const allMembers = await getBoardMembers(project.id);
+        let cleanup: (() => void) | null = null;
+        let loadedMembers: Member[] = [];
 
-            // 2. 온라인 멤버 목록 가져오기
-            const onlineUsers = await getOnlineMembers(project.workspace_id);
-            const onlineIds = new Set(onlineUsers.map(u => u.id));
+        const initMembers = async () => {
+            try {
+                const allMembers = await getBoardMembers(project.id);
+                loadedMembers = allMembers.map(m => ({ ...m, isOnline: false }));
+                setMembers(loadedMembers);
+                console.log('✅ Members loaded:', loadedMembers.length);
 
-            // 3. 온라인 상태 병합
-            const membersWithStatus = allMembers.map(member => ({
-                ...member,
-                isOnline: onlineIds.has(member.id),
-            }));
-
-            setMembers(membersWithStatus);
-            console.log('✅ Members loaded with online status:', membersWithStatus.length, 'online:', onlineIds.size);
-        } catch (err) {
-            console.error('❌ Failed to load members:', err);
-        }
-    }, [project.id, project.workspace_id]);
-
-    // 온라인 상태만 업데이트 (폴링용 - 경량)
-    const updateOnlineStatus = useCallback(async () => {
-        if (!project.workspace_id) return;
-
-        try {
-            const onlineUsers = await getOnlineMembers(project.workspace_id);
-            const onlineIds = new Set(onlineUsers.map(u => u.id));
-
-            setMembers(prev => prev.map(member => ({
-                ...member,
-                isOnline: onlineIds.has(member.id),
-            })));
-        } catch (err) {
-            console.error('❌ Failed to update online status:', err);
-        }
-    }, [project.workspace_id]);
-
-    // 초기 멤버 로딩
-    useEffect(() => {
-        void loadMembers();
-    }, [loadMembers]);
-
-    // 온라인 상태 폴링 (10초 주기)
-    useEffect(() => {
-        // 폴링 시작
-        onlinePollingRef.current = setInterval(() => {
-            void updateOnlineStatus();
-        }, 10000); // 10초
-
-        return () => {
-            // 컴포넌트 언마운트 시 폴링 중지
-            if (onlinePollingRef.current) {
-                clearInterval(onlinePollingRef.current);
+                cleanup = subscribeOnlineMembers(
+                    project.workspace_id!,
+                    (onlineUsers) => {
+                        const onlineIds = new Set(onlineUsers.map(u => u.id));
+                        setMembers(prev => {
+                            const base = prev.length > 0 ? prev : loadedMembers;
+                            return base.map(member => ({
+                                ...member,
+                                isOnline: onlineIds.has(member.id),
+                            }));
+                        });
+                        console.log('✅ Online status updated:', onlineIds.size, 'online');
+                    },
+                    (error) => console.error('❌ SSE connection error:', error)
+                );
+            } catch (err) {
+                console.error('❌ Failed to load members:', err);
             }
         };
-    }, [updateOnlineStatus]);
+
+        void initMembers();
+
+        return () => cleanup?.();
+    }, [project.id, project.workspace_id]);
 
     // =========================================
     // 컬럼 → Group 변환 상수

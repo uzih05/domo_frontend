@@ -89,7 +89,6 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                 const allMembers = await getBoardMembers(project.id);
                 loadedMembers = allMembers.map(m => ({ ...m, isOnline: false }));
                 setMembers(loadedMembers);
-                console.log('✅ Members loaded:', loadedMembers.length);
 
                 cleanup = subscribeOnlineMembers(
                     project.workspace_id!,
@@ -102,12 +101,13 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                                 isOnline: onlineIds.has(member.id),
                             }));
                         });
-                        console.log('✅ Online status updated:', onlineIds.size, 'online');
                     },
-                    (error) => console.error('❌ SSE connection error:', error)
+                    () => {
+                        // SSE connection error - silently handled
+                    }
                 );
-            } catch (err) {
-                console.error('❌ Failed to load members:', err);
+            } catch {
+                // Failed to load members - silently handled
             }
         };
 
@@ -180,11 +180,6 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                 collapsed: column.collapsed,
             };
 
-            console.log('📦 Group from backend:', column.title, {
-                x: groupX, y: groupY, width: groupWidth, height: groupHeight,
-                hasBackendPosition
-            });
-
             return group;
         });
     }, [project.id]);
@@ -204,20 +199,15 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                 getColumns(project.id),
             ]);
 
-            console.log('✅ Loaded tasks:', tasksData.length);
-            console.log('✅ Loaded connections:', connectionsData.length);
-            console.log('✅ Loaded columns:', columnsData.length);
-
             setTasks(tasksData);
             setConnections(connectionsData);
             setColumns(columnsData);
 
-            // ✅ 컬럼 + 카드 위치 기반으로 Groups 생성
+            // 컬럼 + 카드 위치 기반으로 Groups 생성
             const generatedGroups = generateGroupsFromColumns(columnsData, tasksData);
             setGroups(generatedGroups);
-            console.log('✅ Generated groups:', generatedGroups);
         } catch (err) {
-            console.error('❌ Failed to load project data:', err);
+            console.error('Failed to load project data:', err);
             setError('프로젝트 데이터를 불러오는데 실패했습니다.');
         } finally {
             setIsLoading(false);
@@ -280,8 +270,6 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
             ? undefined
             : (taskData.column_id ?? getDefaultColumnId() ?? undefined);
 
-        console.log('📝 Creating task in column:', columnId || '(no column - free placement)');
-
         const newTaskData: Omit<Task, 'id'> = {
             title: taskData.title || '새로운 카드',
             status: taskData.status || 'todo',
@@ -305,20 +293,19 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
 
         try {
             const newTask = await createTask(project.id, newTaskData);
-            // ✅ 기존 태스크 목록에 새 태스크 추가 (중복 방지)
+            // 기존 태스크 목록에 새 태스크 추가 (중복 방지)
             setTasks(prev => {
                 const filtered = prev.filter(t => t.id !== newTask.id);
                 return [...filtered, newTask];
             });
-            console.log('✅ Task created:', newTask.id, 'in column:', columnId || '(no column)');
             return newTask;
         } catch (err) {
-            console.error('❌ Failed to create task:', err);
+            console.error('Failed to create task:', err);
             throw err;
         }
     }, [project.id, getDefaultColumnId]);
 
-    // ✅ 태스크 업데이트 - 중복 방지 로직 추가
+    // 태스크 업데이트 - 중복 방지 로직 추가
     const handleTaskUpdate = useCallback(async (taskId: number, updates: Partial<Task>): Promise<void> => {
         const task = tasks.find(t => t.id === taskId);
 
@@ -339,9 +326,8 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
         try {
             setIsSaving(true);
             await updateTask(taskId, updates);
-            console.log('✅ Task updated:', taskId, updates);
         } catch (err) {
-            console.error('❌ Failed to update task:', err);
+            console.error('Failed to update task:', err);
             // 롤백 - 원래 태스크로 복원
             setTasks(prev => {
                 const rolledBack = prev.map(t => t.id === taskId ? task : t);
@@ -355,7 +341,7 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
         }
     }, [tasks]);
 
-    // ✅ 태스크를 특정 컬럼으로 이동
+    // 태스크를 특정 컬럼으로 이동
     const handleMoveTaskToColumn = useCallback(async (taskId: number, columnId: number): Promise<void> => {
         const task = tasks.find(t => t.id === taskId);
         const column = getColumnById(columnId);
@@ -364,8 +350,6 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
             console.error('Task or column not found');
             return;
         }
-
-        console.log('📦 Moving task', taskId, 'to column:', column.title);
 
         await handleTaskUpdate(taskId, {
             column_id: columnId,
@@ -382,9 +366,8 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
 
         try {
             await deleteTask(taskId);
-            console.log('🗑️ Task deleted:', taskId);
         } catch (err) {
-            console.error('❌ Failed to delete task:', err);
+            console.error('Failed to delete task:', err);
             // 롤백
             setTasks(previousTasks);
             throw err;
@@ -413,11 +396,10 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
 
         try {
             const created = await createConnection(project.id, newConnection);
-            console.log('✅ Created connection:', created);
             setConnections(prev => [...prev, created]);
             return created;
         } catch (err) {
-            console.error('❌ Failed to create connection:', err);
+            console.error('Failed to create connection:', err);
             throw err;
         }
     }, [project.id]);
@@ -430,7 +412,7 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
         try {
             await deleteConnection(project.id, connectionId);
         } catch (err) {
-            console.error('❌ Failed to delete connection:', err);
+            console.error('Failed to delete connection:', err);
             setConnections(previousConnections);
             throw err;
         }
@@ -445,9 +427,8 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
 
         try {
             await updateConnection(connectionId, updates);
-            console.log('✅ Connection updated:', connectionId, updates);
         } catch (err) {
-            console.error('❌ Failed to update connection:', err);
+            console.error('Failed to update connection:', err);
             // 실패 시 롤백
             setConnections(previousConnections);
         }
@@ -460,14 +441,13 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
     const handleFileDropOnCard = useCallback(async (cardId: number, fileId: number) => {
         try {
             await attachFileToCard(cardId, fileId);
-            console.log('✅ File attached to card:', cardId, fileId);
 
             // 카드의 files 배열 업데이트 (낙관적 업데이트는 복잡하므로 데이터 리로드)
             // 실제로는 백엔드에서 반환된 카드 데이터로 업데이트하는 것이 좋음
             const updatedTasks = await getTasks(project.id);
             setTasks(updatedTasks);
         } catch (err) {
-            console.error('❌ Failed to attach file to card:', err);
+            console.error('Failed to attach file to card:', err);
         }
     }, [project.id]);
 
@@ -478,18 +458,16 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
             for (const file of files) {
                 // 1. 파일 업로드
                 const uploadedFile = await uploadFile(project.id, file);
-                console.log('✅ File uploaded:', uploadedFile.filename);
 
                 // 2. 카드에 연결
                 await attachFileToCard(cardId, uploadedFile.id);
-                console.log('✅ File attached to card:', cardId, uploadedFile.id);
             }
 
             // 3. 데이터 리로드
             const updatedTasks = await getTasks(project.id);
             setTasks(updatedTasks);
         } catch (err) {
-            console.error('❌ Failed to upload and attach file:', err);
+            console.error('Failed to upload and attach file:', err);
         } finally {
             setUploadingCardId(null);
         }
@@ -500,7 +478,6 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
         try {
             for (const file of files) {
                 await uploadFile(project.id, file);
-                console.log('✅ File uploaded to project:', file.name);
             }
 
             // 파일 패널 열기 + 새로고침 트리거
@@ -508,7 +485,7 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
             setActiveDockMenu('files');
             setFilePanelRefreshKey(prev => prev + 1);
         } catch (err) {
-            console.error('❌ Failed to upload file to project:', err);
+            console.error('Failed to upload file to project:', err);
         }
     }, [project.id]);
 
@@ -527,8 +504,6 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                 files: prev.files?.filter(f => f.id !== fileId) || []
             };
         });
-
-        console.log('✅ File removed from all cards:', fileId);
     }, []);
 
     // =========================================
@@ -558,10 +533,9 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
     // 그룹 핸들러 (그룹 내 카드도 함께 이동)
     // =========================================
 
-    // ✅ 그룹 업데이트 - 새 그룹 생성 및 parent_id 변경 시 백엔드 동기화
+    // 그룹 업데이트 - 새 그룹 생성 및 parent_id 변경 시 백엔드 동기화
     // 카드 귀속은 드래그 앤 드롭으로만 처리 (위치 기반 자동 귀속 제거)
     const handleGroupsUpdate = useCallback(async (newGroups: Group[]) => {
-        console.log('🔄 handleGroupsUpdate called:', newGroups.map(g => ({ id: g.id, collapsed: g.collapsed, parentId: g.parentId })));
         // 1. 새로 추가된 그룹 찾기 (기존 groups에 없는 것)
         const existingIds = new Set(groups.map(g => g.id));
         const addedGroups = newGroups.filter(g => !existingIds.has(g.id));
@@ -584,10 +558,6 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                     height: newGroup.height,
                 });
 
-                console.log('✅ Column created with position:', newColumn.id, newColumn.title, {
-                    x: newGroup.x, y: newGroup.y, width: newGroup.width, height: newGroup.height
-                });
-
                 // 컬럼 목록에 추가
                 setColumns(prev => [...prev, newColumn]);
 
@@ -596,28 +566,26 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                     g.id === newGroup.id ? { ...g, id: newColumn.id } : g
                 );
             } catch (err) {
-                console.error('❌ Failed to create column:', err);
+                console.error('Failed to create column:', err);
             }
         }
 
-        // ✅ parent_id가 변경된 그룹들 백엔드에 업데이트
+        // parent_id가 변경된 그룹들 백엔드에 업데이트
         for (const changedGroup of parentChangedGroups) {
             try {
                 await updateGroup(changedGroup.id, {
                     parentId: changedGroup.parentId,
                     depth: changedGroup.depth,
                 });
-                console.log(`✅ Group ${changedGroup.id} parent_id updated to:`, changedGroup.parentId);
             } catch (err) {
-                console.error('❌ Failed to update group parent_id:', changedGroup.id, err);
+                console.error('Failed to update group parent_id:', changedGroup.id, err);
             }
         }
 
         setGroups(newGroups);
-        console.log('✅ setGroups done');
     }, [groups, columns, project.id]);
 
-    // ✅ 그룹 이동 핸들러 - 그룹의 위치와 parent_id만 업데이트
+    // 그룹 이동 핸들러 - 그룹의 위치와 parent_id만 업데이트
     // 중요: 그룹 이동 시 내부 카드들의 column_id는 변경하지 않음!
     // 카드의 column_id는 카드를 직접 드래그해서 분리할 때만 변경됨
     const handleGroupMove = useCallback(async (groupId: number, newX: number, newY: number) => {
@@ -629,7 +597,7 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
             g.id === groupId ? { ...g, x: newX, y: newY } : g
         ));
 
-        // ✅ 그룹 내 카드들의 위치만 업데이트 (column_id는 변경하지 않음!)
+        // 그룹 내 카드들의 위치만 업데이트 (column_id는 변경하지 않음!)
         const groupTasks = tasks.filter(t => t.column_id === groupId);
 
         // 이동량 계산
@@ -654,16 +622,15 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
             }
         }
 
-        // ✅ 백엔드에 그룹 위치 저장
+        // 백엔드에 그룹 위치 저장
         try {
             await updateGroup(groupId, { x: newX, y: newY });
-            console.log(`✅ Group ${groupId} position saved to backend (${newX}, ${newY})`);
         } catch (err) {
-            console.error('❌ Failed to save group position:', err);
+            console.error('Failed to save group position:', err);
         }
     }, [groups, tasks, handleTaskUpdate]);
 
-    // ✅ 그룹 삭제 핸들러
+    // 그룹 삭제 핸들러
     const handleGroupDelete = useCallback(async (groupId: number) => {
         const group = groups.find(g => g.id === groupId);
         if (!group) return;
@@ -683,10 +650,8 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
             setTasks(prev => prev.map(t =>
                 t.column_id === groupId ? { ...t, column_id: undefined } : t
             ));
-
-            console.log(`✅ Group ${groupId} deleted`);
         } catch (err) {
-            console.error('❌ Failed to delete group:', err);
+            console.error('Failed to delete group:', err);
             alert('그룹 삭제에 실패했습니다.');
         }
     }, [groups]);
@@ -746,7 +711,7 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
         );
     }
 
-    // ✅ 현재 보드의 태스크만 필터링 - 중복 제거
+    // 현재 보드의 태스크만 필터링 - 중복 제거
     const filteredTasks = tasks
         .filter(t => t.boardId === activeBoardId || t.boardId === project.id || activeBoardId === 1)
         .filter((task, index, self) => index === self.findIndex(t => t.id === task.id));
@@ -755,13 +720,9 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
         c.boardId === activeBoardId || c.boardId === project.id || activeBoardId === 1
     );
 
-    console.log('🔗 connections:', connections, 'filtered:', filteredConnections, 'activeBoardId:', activeBoardId, 'project.id:', project.id);
-
     const filteredGroups = groups.filter(g =>
         g.projectId === activeBoardId || g.projectId === project.id || activeBoardId === 1
     );
-
-    console.log('🎯 Rendering - groups:', groups.length, 'filteredGroups:', filteredGroups.length, 'activeBoardId:', activeBoardId, 'project.id:', project.id);
 
     return (
         <div className="flex h-screen bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100 font-sans overflow-hidden">

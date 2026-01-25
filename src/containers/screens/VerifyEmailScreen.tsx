@@ -245,18 +245,6 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({
                     </p>
                 </div>
             </div>
-
-            {/* Shake 애니메이션 스타일 */}
-            <style jsx>{`
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          25% { transform: translateX(-5px); }
-          75% { transform: translateX(5px); }
-        }
-        .shake {
-          animation: shake 0.3s ease-in-out;
-        }
-      `}</style>
         </div>
     );
 };

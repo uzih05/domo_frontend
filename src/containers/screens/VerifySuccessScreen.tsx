@@ -102,7 +102,7 @@ export const VerifySuccessScreen: React.FC<VerifySuccessScreenProps> = ({ onGoTo
                     {/* 환영 메시지 카드 */}
                     <div className="w-full p-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-2xl border border-green-200 dark:border-green-800/50 mb-6">
                         <p className="text-sm text-green-700 dark:text-green-300 text-center font-medium">
-                            🎉 이제 로그인하여 팀과 함께 협업을 시작하세요!
+                            이제 로그인하여 팀과 함께 협업을 시작하세요!
                         </p>
                     </div>
                 </div>

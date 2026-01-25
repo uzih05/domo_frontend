@@ -30,7 +30,7 @@ export {
   deleteProject,
   // 멤버
   getWorkspaceMembers,
-  getOnlineMembers,
+  subscribeOnlineMembers,
   addWorkspaceMember,
   removeWorkspaceMember,
   createInvitation,

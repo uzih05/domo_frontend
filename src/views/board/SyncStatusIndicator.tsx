@@ -68,27 +68,31 @@ const STATUS_CONFIGS: Record<SyncStatus, StatusConfig> = {
 // ============================================
 
 export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
-  status,
-  pendingCount,
-  error,
-  onRetry,
-  onDismissError,
-  className = '',
-}) => {
+                                                                          status,
+                                                                          pendingCount,
+                                                                          error,
+                                                                          onRetry,
+                                                                          onDismissError,
+                                                                          className = '',
+                                                                        }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [displayStatus, setDisplayStatus] = useState<SyncStatus>(status);
 
   // 상태 변경 시 가시성 관리
+  // 조건부 setState로 불필요한 리렌더링 방지
   useEffect(() => {
     // pending 상태는 표시하지 않음 (debounce 대기 중)
     // syncing, success, error 상태만 표시
     if (status === 'idle' || status === 'pending') {
       // idle/pending 상태면 서서히 숨김
-      const timer = setTimeout(() => setIsVisible(false), 500);
+      const timer = setTimeout(() => {
+        setIsVisible(prev => prev ? false : prev); // 이미 false면 setState 스킵
+      }, 500);
       return () => clearTimeout(timer);
     } else {
-      setIsVisible(true);
-      setDisplayStatus(status);
+      // 상태가 변경될 때만 업데이트
+      setIsVisible(prev => prev ? prev : true);
+      setDisplayStatus(prev => prev !== status ? status : prev);
     }
   }, [status, pendingCount]);
 
@@ -97,7 +101,7 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
     if (status === 'success') {
       setIsVisible(true);
       const timer = setTimeout(() => {
-        setDisplayStatus('idle');
+        setDisplayStatus(prev => prev !== 'idle' ? 'idle' : prev);
       }, 2000);
       return () => clearTimeout(timer);
     }
@@ -111,65 +115,65 @@ export const SyncStatusIndicator: React.FC<SyncStatusIndicatorProps> = ({
   }
 
   return (
-    <div
-      className={`
+      <div
+          className={`
         flex items-center gap-2 px-3 py-1.5 rounded-full
         transition-all duration-300 ease-in-out
         ${config.bgColor} ${config.textColor}
         ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}
         ${className}
       `}
-    >
-      {/* 아이콘 */}
-      <span className={config.animate ? 'animate-pulse' : ''}>
+      >
+        {/* 아이콘 */}
+        <span className={config.animate ? 'animate-pulse' : ''}>
         {config.icon}
       </span>
 
-      {/* 텍스트 */}
-      <span className="text-xs font-medium whitespace-nowrap">
+        {/* 텍스트 */}
+        <span className="text-xs font-medium whitespace-nowrap">
         {displayStatus === 'syncing' && pendingCount > 0
-          ? `저장 중... (${pendingCount})`
-          : config.text
+            ? `저장 중... (${pendingCount})`
+            : config.text
         }
       </span>
 
-      {/* 에러 시 재시도 버튼 */}
-      {displayStatus === 'error' && onRetry && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRetry();
-          }}
-          className="
+        {/* 에러 시 재시도 버튼 */}
+        {displayStatus === 'error' && onRetry && (
+            <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry();
+                }}
+                className="
             ml-1 p-1 rounded-full
             hover:bg-red-100 dark:hover:bg-red-900/50
             transition-colors duration-150
           "
-          title="재시도"
-        >
-          <RefreshCw size={12} />
-        </button>
-      )}
+                title="재시도"
+            >
+              <RefreshCw size={12} />
+            </button>
+        )}
 
-      {/* 에러 시 닫기 버튼 */}
-      {displayStatus === 'error' && onDismissError && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDismissError();
-          }}
-          className="
+        {/* 에러 시 닫기 버튼 */}
+        {displayStatus === 'error' && onDismissError && (
+            <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDismissError();
+                }}
+                className="
             ml-1 p-1 rounded-full
             hover:bg-red-100 dark:hover:bg-red-900/50
             transition-colors duration-150
             text-red-400 hover:text-red-600
           "
-          title="닫기"
-        >
-          ×
-        </button>
-      )}
-    </div>
+                title="닫기"
+            >
+              ×
+            </button>
+        )}
+      </div>
   );
 };
 
@@ -184,10 +188,10 @@ export interface SyncErrorToastProps {
 }
 
 export const SyncErrorToast: React.FC<SyncErrorToastProps> = ({
-  error,
-  onRetry,
-  onDismiss,
-}) => {
+                                                                error,
+                                                                onRetry,
+                                                                onDismiss,
+                                                              }) => {
   // 자동 닫힘 (10초)
   useEffect(() => {
     const timer = setTimeout(onDismiss, 10000);
@@ -208,8 +212,8 @@ export const SyncErrorToast: React.FC<SyncErrorToastProps> = ({
   };
 
   return (
-    <div
-      className="
+      <div
+          className="
         fixed bottom-4 right-4 z-[100]
         flex items-start gap-3 p-4
         bg-white dark:bg-gray-800
@@ -218,23 +222,23 @@ export const SyncErrorToast: React.FC<SyncErrorToastProps> = ({
         animate-in slide-in-from-right duration-300
         max-w-sm
       "
-    >
-      <div className="flex-shrink-0 p-1 bg-red-100 dark:bg-red-900/30 rounded-full">
-        <AlertCircle size={18} className="text-red-500" />
-      </div>
+      >
+        <div className="flex-shrink-0 p-1 bg-red-100 dark:bg-red-900/30 rounded-full">
+          <AlertCircle size={18} className="text-red-500" />
+        </div>
 
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-          {getErrorMessage()}
-        </p>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          원래 위치로 복원됩니다.
-        </p>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {getErrorMessage()}
+          </p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            원래 위치로 복원됩니다.
+          </p>
 
-        <div className="mt-3 flex gap-2">
-          <button
-            onClick={onRetry}
-            className="
+          <div className="mt-3 flex gap-2">
+            <button
+                onClick={onRetry}
+                className="
               px-3 py-1.5 text-xs font-medium
               bg-red-50 dark:bg-red-900/30
               text-red-600 dark:text-red-400
@@ -242,36 +246,36 @@ export const SyncErrorToast: React.FC<SyncErrorToastProps> = ({
               hover:bg-red-100 dark:hover:bg-red-900/50
               transition-colors duration-150
             "
-          >
-            재시도
-          </button>
-          <button
-            onClick={onDismiss}
-            className="
+            >
+              재시도
+            </button>
+            <button
+                onClick={onDismiss}
+                className="
               px-3 py-1.5 text-xs font-medium
               text-gray-500 dark:text-gray-400
               rounded-lg
               hover:bg-gray-100 dark:hover:bg-gray-700
               transition-colors duration-150
             "
-          >
-            무시
-          </button>
+            >
+              무시
+            </button>
+          </div>
         </div>
-      </div>
 
-      <button
-        onClick={onDismiss}
-        className="
+        <button
+            onClick={onDismiss}
+            className="
           flex-shrink-0 p-1
           text-gray-400 hover:text-gray-600
           dark:text-gray-500 dark:hover:text-gray-300
           transition-colors duration-150
         "
-      >
-        ×
-      </button>
-    </div>
+        >
+          ×
+        </button>
+      </div>
   );
 };
 

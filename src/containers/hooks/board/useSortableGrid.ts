@@ -110,7 +110,7 @@ export function useSortableGrid(
     const [dragContext, setDragContext] = useState<DragContext | null>(null);
     const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
     const [cardTransitions, setCardTransitions] = useState<Map<number, { x: number; y: number }>>(new Map());
-    
+
     /** 자유 카드 드래그 시 하이라이트될 그룹 ID */
     const [highlightedGroupId, setHighlightedGroupId] = useState<number | null>(null);
 
@@ -240,6 +240,31 @@ export function useSortableGrid(
         }
     }, [gridConfig]);
 
+    // ========== 카드 밀어내기 트랜지션 계산 ==========
+    // NOTE: updateDrag에서 참조하므로 반드시 updateDrag 앞에 정의해야 함
+    const calculateShiftTransitions = useCallback((
+        groupId: number,
+        dropIndex: number,
+        groupCards: Task[],
+        group: Group
+    ) => {
+        const newTransitions = new Map<number, { x: number; y: number }>();
+
+        // dropIndex 이후의 카드들을 아래로 밀어냄
+        for (let i = dropIndex; i < groupCards.length; i++) {
+            const task = groupCards[i];
+            const currentPos = indexToAbsolutePosition(i, group.x, group.y, gridConfig);
+            const shiftedPos = indexToAbsolutePosition(i + 1, group.x, group.y, gridConfig);
+
+            newTransitions.set(task.id, {
+                x: shiftedPos.x - currentPos.x,
+                y: shiftedPos.y - currentPos.y,
+            });
+        }
+
+        setCardTransitions(newTransitions);
+    }, [gridConfig]);
+
     // ========== 드래그 중 (위치 업데이트) ==========
     const updateDrag = useCallback((
         clientX: number,
@@ -291,7 +316,7 @@ export function useSortableGrid(
 
             // 카드 밀어내기 트랜지션 계산
             calculateShiftTransitions(targetGroup.id, dropIndex, groupCards, targetGroup);
-            
+
             // 그룹 하이라이트 (자유 카드가 그룹으로 진입 시)
             setHighlightedGroupId(targetGroup.id);
         } else {
@@ -302,31 +327,7 @@ export function useSortableGrid(
         }
 
         return { x: dragX, y: dragY };
-    }, [dragContext, gridConfig]);
-
-    // ========== 카드 밀어내기 트랜지션 계산 ==========
-    const calculateShiftTransitions = useCallback((
-        groupId: number,
-        dropIndex: number,
-        groupCards: Task[],
-        group: Group
-    ) => {
-        const newTransitions = new Map<number, { x: number; y: number }>();
-
-        // dropIndex 이후의 카드들을 아래로 밀어냄
-        for (let i = dropIndex; i < groupCards.length; i++) {
-            const task = groupCards[i];
-            const currentPos = indexToAbsolutePosition(i, group.x, group.y, gridConfig);
-            const shiftedPos = indexToAbsolutePosition(i + 1, group.x, group.y, gridConfig);
-
-            newTransitions.set(task.id, {
-                x: shiftedPos.x - currentPos.x,
-                y: shiftedPos.y - currentPos.y,
-            });
-        }
-
-        setCardTransitions(newTransitions);
-    }, [gridConfig]);
+    }, [dragContext, gridConfig, calculateShiftTransitions]);
 
     // ========== 그룹 내 드롭 처리 ==========
     const handleDropInGroup = useCallback((
@@ -569,13 +570,13 @@ export function useSortableGrid(
         cardPositions,
         isDragging: dragContext !== null,
         highlightedGroupId,
-        
+
         // 메서드
         startDrag,
         updateDrag,
         endDrag,
         cancelDrag,
-        
+
         // 유틸리티
         isTaskBeingDragged,
         getCardTransition,

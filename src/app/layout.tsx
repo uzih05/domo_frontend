@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Metadata } from 'next';
 import './globals.css';
+import { UserProvider } from '@/src/lib/contexts/UserContext';
 
 export const metadata: Metadata = {
   title: 'DOMO Workspace',
@@ -33,7 +34,9 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased overflow-hidden">
-        {children}
+        <UserProvider>
+          {children}
+        </UserProvider>
       </body>
     </html>
   );

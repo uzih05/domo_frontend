@@ -245,15 +245,29 @@ export function usePendingSync<T = unknown, S = unknown>(
         // [Race Condition Guard] Lock된 엔티티는 롤백에서 제외
         const isLockedFn = isEntityLockedRef.current;
         if (isLockedFn) {
-          const lockedIds = batch.items.filter(item => isLockedFn(item.entityId)).map(item => item.entityId);
+          // 각 엔티티의 Lock 상태를 개별 체크하고 로깅
+          const lockCheckResults = batch.items.map(item => ({
+            entityId: item.entityId,
+            isLocked: isLockedFn(item.entityId),
+          }));
+          console.log('[Optimistic] 🔍 Batch 롤백 Lock 체크:', lockCheckResults);
+
+          const lockedIds = lockCheckResults.filter(r => r.isLocked).map(r => r.entityId);
+          const unlockedIds = lockCheckResults.filter(r => !r.isLocked).map(r => r.entityId);
+
           if (lockedIds.length > 0) {
-            console.log('[Optimistic] Lock된 엔티티 롤백 스킵:', lockedIds);
+            console.log('[Optimistic] 🛡️ Lock된 엔티티 롤백 스킵:', lockedIds);
           }
+          if (unlockedIds.length > 0) {
+            console.log('[Optimistic] ⚠️ Lock 안된 엔티티 롤백 진행:', unlockedIds);
+          }
+
           const itemsToRollback = batch.items.filter(item => !isLockedFn(item.entityId));
           if (itemsToRollback.length > 0) {
             onBatchRollbackRef.current?.(itemsToRollback);
           }
         } else {
+          console.log('[Optimistic] ⚠️ isEntityLocked 함수 없음, 전체 롤백');
           onBatchRollbackRef.current?.(batch.items);
         }
 
@@ -315,9 +329,13 @@ export function usePendingSync<T = unknown, S = unknown>(
 
           // [Race Condition Guard] Lock된 엔티티는 롤백 스킵
           const isLockedFn = isEntityLockedRef.current;
-          if (isLockedFn && isLockedFn(change.entityId)) {
-            console.log('[Optimistic] Lock된 엔티티 롤백 스킵:', change.entityId);
+          const entityIsLocked = isLockedFn ? isLockedFn(change.entityId) : false;
+          console.log(`[Optimistic] 🔍 단건 롤백 Lock 체크 - entityId: ${change.entityId}, isLocked: ${entityIsLocked}`);
+
+          if (entityIsLocked) {
+            console.log('[Optimistic] 🛡️ Lock된 엔티티 롤백 스킵:', change.entityId);
           } else {
+            console.log('[Optimistic] ⚠️ Lock 안된 엔티티 롤백 진행:', change.entityId);
             onRollbackRef.current?.(change);
           }
 

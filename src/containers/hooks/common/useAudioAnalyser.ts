@@ -39,7 +39,7 @@ export function useAudioAnalyser(options: UseAudioAnalyserOptions = {}): UseAudi
     const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const intervalIdRef = useRef<number | null>(null);
     const holdTimeoutRef = useRef<number | null>(null);
-    const dataArrayRef = useRef<Uint8Array | null>(null);
+    const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
     // 클린업 함수
     const cleanup = useCallback(() => {

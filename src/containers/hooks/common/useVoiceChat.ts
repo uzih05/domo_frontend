@@ -10,17 +10,20 @@ const ICE_SERVERS: RTCConfiguration = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
     ],
 };
 
-// 디버그 모드 (개발 시 true로 설정)
+// 디버그 로그 활성화
 const DEBUG = true;
 
-function debugLog(category: string, message: string, data?: unknown) {
+function log(tag: string, message: string, data?: unknown) {
     if (DEBUG) {
-        const timestamp = new Date().toISOString().split('T')[1].slice(0, 12);
-        console.log(`[${timestamp}] [VoiceChat:${category}]`, message, data ?? '');
+        const time = new Date().toISOString().slice(11, 23);
+        if (data !== undefined) {
+            console.log(`[${time}] [Voice:${tag}]`, message, data);
+        } else {
+            console.log(`[${time}] [Voice:${tag}]`, message);
+        }
     }
 }
 
@@ -44,11 +47,10 @@ interface UseVoiceChatReturn {
 }
 
 // ============================================
-// Hook Implementation
+// Hook
 // ============================================
 
 export function useVoiceChat(projectId: number, userId: number): UseVoiceChatReturn {
-    // State
     const [isConnected, setIsConnected] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
     const [isDeafened, setIsDeafened] = useState(false);
@@ -57,22 +59,21 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
     const [error, setError] = useState<VoiceChatError | null>(null);
     const [isConnecting, setIsConnecting] = useState(false);
 
-    // Refs
     const isDeafenedRef = useRef(false);
     const socketRef = useRef<WebSocket | null>(null);
     const pcsRef = useRef<{ [key: number]: RTCPeerConnection }>({});
     const remoteAudiosRef = useRef<{ [key: number]: HTMLAudioElement }>({});
     const localStreamRef = useRef<MediaStream | null>(null);
     
-    // ICE candidate 큐 (remoteDescription 설정 전에 도착한 candidate 보관)
-    const iceCandidateQueues = useRef<{ [key: number]: RTCIceCandidateInit[] }>({});
+    // ICE candidate 큐 (remoteDescription 전에 도착한 candidate 저장)
+    const iceQueues = useRef<{ [key: number]: RTCIceCandidateInit[] }>({});
 
     // -------------------------------------------------------------------------
     // Error Handling
     // -------------------------------------------------------------------------
     
     const setVoiceChatError = useCallback((type: VoiceChatErrorType, message: string) => {
-        debugLog('Error', `${type}: ${message}`);
+        log('Error', `${type}: ${message}`);
         setError({ type, message });
     }, []);
 
@@ -81,265 +82,226 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
     }, []);
 
     // -------------------------------------------------------------------------
-    // ICE Candidate Queue Processing
+    // ICE Queue Processing
     // -------------------------------------------------------------------------
     
-    const processIceCandidateQueue = useCallback(async (peerId: number) => {
+    const flushIceQueue = useCallback(async (peerId: number) => {
         const pc = pcsRef.current[peerId];
-        const queue = iceCandidateQueues.current[peerId];
+        const queue = iceQueues.current[peerId] || [];
         
-        if (!pc || !queue || queue.length === 0) return;
+        if (!pc || queue.length === 0) return;
         
-        debugLog('ICE', `Processing ${queue.length} queued candidates for peer ${peerId}`);
+        log('ICE', `Flushing ${queue.length} queued candidates for peer ${peerId}`);
         
         for (const candidate of queue) {
             try {
                 await pc.addIceCandidate(new RTCIceCandidate(candidate));
-                debugLog('ICE', `Added queued candidate for peer ${peerId}`);
             } catch (e) {
-                console.error(`Error adding queued ICE candidate:`, e);
+                console.error('Failed to add queued ICE:', e);
             }
         }
         
-        // 큐 비우기
-        iceCandidateQueues.current[peerId] = [];
+        iceQueues.current[peerId] = [];
     }, []);
 
     // -------------------------------------------------------------------------
-    // Helper Functions
+    // Peer Connection Management
     // -------------------------------------------------------------------------
 
     const closePeerConnection = useCallback((peerId: number) => {
-        debugLog('PeerConnection', `Closing connection to peer ${peerId}`);
+        log('Peer', `Closing connection to peer ${peerId}`);
         
         if (pcsRef.current[peerId]) {
             pcsRef.current[peerId].close();
             delete pcsRef.current[peerId];
         }
-        
         if (remoteAudiosRef.current[peerId]) {
             remoteAudiosRef.current[peerId].pause();
             remoteAudiosRef.current[peerId].srcObject = null;
             delete remoteAudiosRef.current[peerId];
         }
+        delete iceQueues.current[peerId];
         
-        if (iceCandidateQueues.current[peerId]) {
-            delete iceCandidateQueues.current[peerId];
-        }
-        
-        setActivePeerIds((prev) => prev.filter((id) => id !== peerId));
+        setActivePeerIds(prev => prev.filter(id => id !== peerId));
     }, []);
 
-    const handleIce = useCallback(async (senderId: number, candidate: RTCIceCandidateInit) => {
-        debugLog('ICE', `Received ICE candidate from peer ${senderId}`, candidate);
-        
-        const pc = pcsRef.current[senderId];
-        
-        if (!pc) {
-            debugLog('ICE', `No PeerConnection for ${senderId}, queuing candidate`);
-            if (!iceCandidateQueues.current[senderId]) {
-                iceCandidateQueues.current[senderId] = [];
-            }
-            iceCandidateQueues.current[senderId].push(candidate);
-            return;
-        }
-        
-        if (!pc.remoteDescription) {
-            debugLog('ICE', `Remote description not set for ${senderId}, queuing candidate`);
-            if (!iceCandidateQueues.current[senderId]) {
-                iceCandidateQueues.current[senderId] = [];
-            }
-            iceCandidateQueues.current[senderId].push(candidate);
-            return;
-        }
-        
-        try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            debugLog('ICE', `Added ICE candidate for peer ${senderId}`);
-        } catch (e) {
-            console.error(`Error adding ICE candidate from ${senderId}:`, e);
-        }
-    }, []);
-
-    const handleAnswer = useCallback(async (senderId: number, sdp: RTCSessionDescriptionInit) => {
-        debugLog('Signaling', `Received ANSWER from peer ${senderId}`);
-        
-        const pc = pcsRef.current[senderId];
-        if (!pc) {
-            debugLog('Signaling', `No PeerConnection for ${senderId}, ignoring answer`);
-            return;
-        }
-        
-        try {
-            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-            debugLog('Signaling', `Set remote description (answer) for peer ${senderId}`);
-            
-            // 큐에 있던 ICE candidate 처리
-            await processIceCandidateQueue(senderId);
-        } catch (e) {
-            console.error(`Error handling answer from ${senderId}:`, e);
-        }
-    }, [processIceCandidateQueue]);
-
-    const createPeerConnection = useCallback((peerId: number, stream: MediaStream, isOfferer: boolean) => {
+    const createPeerConnection = useCallback((peerId: number, stream: MediaStream): RTCPeerConnection => {
+        // 이미 존재하면 반환
         if (pcsRef.current[peerId]) {
-            debugLog('PeerConnection', `Connection already exists for peer ${peerId}`);
+            log('Peer', `Connection already exists for peer ${peerId}`);
             return pcsRef.current[peerId];
         }
 
-        debugLog('PeerConnection', `Creating new connection for peer ${peerId}, isOfferer=${isOfferer}`);
+        log('Peer', `Creating new PeerConnection for peer ${peerId}`);
         
         const pc = new RTCPeerConnection(ICE_SERVERS);
         pcsRef.current[peerId] = pc;
-        iceCandidateQueues.current[peerId] = [];
+        iceQueues.current[peerId] = [];
 
-        // 활성 피어 목록에 추가
-        setActivePeerIds((prev) => {
+        // 피어 목록에 추가
+        setActivePeerIds(prev => {
             if (prev.includes(peerId)) return prev;
-            debugLog('State', `Adding peer ${peerId} to active list`);
+            log('State', `Adding peer ${peerId} to active list`);
             return [...prev, peerId];
         });
 
         // 로컬 트랙 추가
-        stream.getTracks().forEach((track) => {
+        stream.getTracks().forEach(track => {
             pc.addTrack(track, stream);
-            debugLog('Track', `Added local ${track.kind} track to peer ${peerId}`);
+            log('Track', `Added local ${track.kind} track`);
         });
 
         // 원격 트랙 수신
         pc.ontrack = (event) => {
-            debugLog('Track', `Received remote track from peer ${peerId}`, event.track.kind);
+            log('Track', `Received remote track from peer ${peerId}`);
             
             if (!remoteAudiosRef.current[peerId]) {
-                const remoteAudio = new Audio();
-                remoteAudio.srcObject = event.streams[0];
-                remoteAudio.autoplay = true;
-                remoteAudio.muted = isDeafenedRef.current;
-                remoteAudiosRef.current[peerId] = remoteAudio;
-
-                remoteAudio.play().catch((err) => {
-                    debugLog('Audio', `Autoplay blocked for peer ${peerId}, waiting for interaction`, err);
-                    const playOnInteraction = () => {
-                        remoteAudio.play().catch(console.error);
-                        document.removeEventListener('click', playOnInteraction);
-                    };
-                    document.addEventListener('click', playOnInteraction, { once: true });
+                const audio = new Audio();
+                audio.srcObject = event.streams[0];
+                audio.autoplay = true;
+                audio.muted = isDeafenedRef.current;
+                remoteAudiosRef.current[peerId] = audio;
+                
+                audio.play().catch(() => {
+                    log('Audio', 'Autoplay blocked, waiting for user interaction');
+                    document.addEventListener('click', () => audio.play(), { once: true });
                 });
             }
         };
 
         // ICE Candidate 생성
         pc.onicecandidate = (event) => {
-            if (event.candidate) {
-                debugLog('ICE', `Generated ICE candidate for peer ${peerId}`);
-                
-                if (socketRef.current?.readyState === WebSocket.OPEN) {
-                    const message = {
-                        type: 'ice',
-                        senderId: userId,
-                        targetId: peerId,
-                        candidate: event.candidate.toJSON(),
-                    };
-                    socketRef.current.send(JSON.stringify(message));
-                    debugLog('ICE', `Sent ICE candidate to peer ${peerId}`);
-                }
-            }
-        };
-
-        // ICE 연결 상태 변경
-        pc.oniceconnectionstatechange = () => {
-            debugLog('ICE', `ICE connection state for peer ${peerId}: ${pc.iceConnectionState}`);
-            
-            if (pc.iceConnectionState === 'connected') {
-                debugLog('ICE', `Successfully connected to peer ${peerId}!`);
-            } else if (pc.iceConnectionState === 'failed') {
-                debugLog('ICE', `Connection failed to peer ${peerId}, attempting restart`);
-                pc.restartIce();
-            } else if (pc.iceConnectionState === 'disconnected') {
-                debugLog('ICE', `Peer ${peerId} disconnected`);
+            if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
+                log('ICE', `Sending ICE candidate to peer ${peerId}`);
+                socketRef.current.send(JSON.stringify({
+                    type: 'ice',
+                    senderId: userId,
+                    targetId: peerId,
+                    candidate: event.candidate.toJSON(),
+                }));
             }
         };
 
         // 연결 상태 변경
+        pc.oniceconnectionstatechange = () => {
+            log('ICE', `Connection state: ${pc.iceConnectionState} (peer ${peerId})`);
+            if (pc.iceConnectionState === 'failed') {
+                log('ICE', 'Connection failed, restarting ICE');
+                pc.restartIce();
+            }
+        };
+
         pc.onconnectionstatechange = () => {
-            debugLog('PeerConnection', `Connection state for peer ${peerId}: ${pc.connectionState}`);
-            
+            log('Peer', `Connection state: ${pc.connectionState} (peer ${peerId})`);
             if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
                 closePeerConnection(peerId);
             }
         };
 
-        // Signaling 상태 변경
-        pc.onsignalingstatechange = () => {
-            debugLog('Signaling', `Signaling state for peer ${peerId}: ${pc.signalingState}`);
-        };
-
         return pc;
     }, [userId, closePeerConnection]);
 
-    const sendOffer = useCallback(async (peerId: number, pc: RTCPeerConnection) => {
+    // -------------------------------------------------------------------------
+    // Signaling Handlers
+    // -------------------------------------------------------------------------
+
+    const handleJoin = useCallback(async (senderId: number, stream: MediaStream) => {
+        log('Signal', `Peer ${senderId} joined, I will create offer`);
+        
+        const pc = createPeerConnection(senderId, stream);
+        
         try {
-            debugLog('Signaling', `Creating offer for peer ${peerId}`);
-            
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             
-            debugLog('Signaling', `Set local description (offer) for peer ${peerId}`);
-            
-            if (socketRef.current?.readyState === WebSocket.OPEN) {
-                const message = {
-                    type: 'offer',
-                    senderId: userId,
-                    targetId: peerId,
-                    sdp: pc.localDescription,
-                };
-                socketRef.current.send(JSON.stringify(message));
-                debugLog('Signaling', `Sent offer to peer ${peerId}`);
-            }
+            log('Signal', `Sending OFFER to peer ${senderId}`);
+            socketRef.current?.send(JSON.stringify({
+                type: 'offer',
+                senderId: userId,
+                targetId: senderId,
+                sdp: pc.localDescription,
+            }));
         } catch (e) {
-            console.error(`Error creating offer for peer ${peerId}:`, e);
+            console.error('Failed to create offer:', e);
         }
-    }, [userId]);
+    }, [userId, createPeerConnection]);
 
     const handleOffer = useCallback(async (senderId: number, sdp: RTCSessionDescriptionInit, stream: MediaStream) => {
-        debugLog('Signaling', `Received OFFER from peer ${senderId}`);
+        log('Signal', `Received OFFER from peer ${senderId}`);
         
-        // PeerConnection 생성 (Answerer로서)
-        const pc = createPeerConnection(senderId, stream, false);
-        if (!pc) return;
-
+        const pc = createPeerConnection(senderId, stream);
+        
         try {
             await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-            debugLog('Signaling', `Set remote description (offer) for peer ${senderId}`);
+            log('Signal', `Set remote description (offer) for peer ${senderId}`);
             
             // 큐에 있던 ICE candidate 처리
-            await processIceCandidateQueue(senderId);
+            await flushIceQueue(senderId);
             
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            debugLog('Signaling', `Created and set local description (answer) for peer ${senderId}`);
-
-            if (socketRef.current?.readyState === WebSocket.OPEN) {
-                const message = {
-                    type: 'answer',
-                    senderId: userId,
-                    targetId: senderId,
-                    sdp: pc.localDescription,
-                };
-                socketRef.current.send(JSON.stringify(message));
-                debugLog('Signaling', `Sent answer to peer ${senderId}`);
-            }
+            
+            log('Signal', `Sending ANSWER to peer ${senderId}`);
+            socketRef.current?.send(JSON.stringify({
+                type: 'answer',
+                senderId: userId,
+                targetId: senderId,
+                sdp: pc.localDescription,
+            }));
         } catch (e) {
-            console.error(`Error handling offer from ${senderId}:`, e);
+            console.error('Failed to handle offer:', e);
         }
-    }, [createPeerConnection, userId, processIceCandidateQueue]);
+    }, [userId, createPeerConnection, flushIceQueue]);
+
+    const handleAnswer = useCallback(async (senderId: number, sdp: RTCSessionDescriptionInit) => {
+        log('Signal', `Received ANSWER from peer ${senderId}`);
+        
+        const pc = pcsRef.current[senderId];
+        if (!pc) {
+            log('Signal', `No PeerConnection for peer ${senderId}, ignoring answer`);
+            return;
+        }
+        
+        try {
+            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+            log('Signal', `Set remote description (answer) for peer ${senderId}`);
+            
+            // 큐에 있던 ICE candidate 처리
+            await flushIceQueue(senderId);
+        } catch (e) {
+            console.error('Failed to handle answer:', e);
+        }
+    }, [flushIceQueue]);
+
+    const handleIce = useCallback(async (senderId: number, candidate: RTCIceCandidateInit) => {
+        log('ICE', `Received ICE candidate from peer ${senderId}`);
+        
+        const pc = pcsRef.current[senderId];
+        
+        // PeerConnection이 없거나 remoteDescription이 없으면 큐에 저장
+        if (!pc || !pc.remoteDescription) {
+            log('ICE', `Queuing ICE candidate for peer ${senderId} (no remote description yet)`);
+            if (!iceQueues.current[senderId]) {
+                iceQueues.current[senderId] = [];
+            }
+            iceQueues.current[senderId].push(candidate);
+            return;
+        }
+        
+        try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            log('ICE', `Added ICE candidate for peer ${senderId}`);
+        } catch (e) {
+            console.error('Failed to add ICE candidate:', e);
+        }
+    }, []);
 
     // -------------------------------------------------------------------------
     // Cleanup
     // -------------------------------------------------------------------------
 
     const cleanup = useCallback(() => {
-        debugLog('Cleanup', 'Starting cleanup...');
+        log('Cleanup', 'Cleaning up voice chat...');
         
         setIsConnected(false);
         setIsMuted(false);
@@ -350,38 +312,30 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
         isDeafenedRef.current = false;
 
         if (socketRef.current) {
-            debugLog('Cleanup', 'Closing WebSocket');
             socketRef.current.close();
             socketRef.current = null;
         }
 
-        Object.keys(pcsRef.current).forEach((key) => {
+        Object.keys(pcsRef.current).forEach(key => {
             const peerId = parseInt(key);
-            debugLog('Cleanup', `Closing PeerConnection ${peerId}`);
-            if (pcsRef.current[peerId]) {
-                pcsRef.current[peerId].close();
-            }
+            pcsRef.current[peerId]?.close();
             delete pcsRef.current[peerId];
         });
 
-        Object.keys(remoteAudiosRef.current).forEach((key) => {
+        Object.keys(remoteAudiosRef.current).forEach(key => {
             const peerId = parseInt(key);
-            if (remoteAudiosRef.current[peerId]) {
-                remoteAudiosRef.current[peerId].pause();
-                remoteAudiosRef.current[peerId].srcObject = null;
-                delete remoteAudiosRef.current[peerId];
-            }
+            remoteAudiosRef.current[peerId]?.pause();
+            delete remoteAudiosRef.current[peerId];
         });
         
-        iceCandidateQueues.current = {};
+        iceQueues.current = {};
 
         if (localStreamRef.current) {
-            debugLog('Cleanup', 'Stopping local media tracks');
-            localStreamRef.current.getTracks().forEach((track) => track.stop());
+            localStreamRef.current.getTracks().forEach(track => track.stop());
             localStreamRef.current = null;
         }
         
-        debugLog('Cleanup', 'Cleanup complete');
+        log('Cleanup', 'Done');
     }, []);
 
     // -------------------------------------------------------------------------
@@ -390,25 +344,25 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
 
     const joinVoiceChannel = useCallback(async () => {
         if (isConnected || socketRef.current || isConnecting) {
-            debugLog('Join', 'Already connected or connecting, ignoring');
+            log('Join', 'Already connected or connecting');
             return;
         }
 
-        debugLog('Join', `Starting join process for project ${projectId}, user ${userId}`);
+        log('Join', `Starting... projectId=${projectId}, userId=${userId}`);
         setIsConnecting(true);
         clearError();
 
         // Mock Mode
         if (API_CONFIG.USE_MOCK) {
-            debugLog('Join', 'Using mock mode');
+            log('Join', 'Mock mode enabled');
             setIsConnected(true);
             setActivePeerIds([userId, 999]);
             setIsConnecting(false);
             return;
         }
 
-        // 브라우저 지원 체크
-        if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        // 브라우저 체크
+        if (!navigator.mediaDevices?.getUserMedia) {
             setVoiceChatError('not_supported', '이 브라우저에서는 음성 채팅을 지원하지 않습니다.');
             setIsConnecting(false);
             return;
@@ -416,142 +370,98 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
 
         try {
             // 마이크 권한 요청
-            debugLog('Media', 'Requesting microphone access...');
+            log('Media', 'Requesting microphone access...');
             const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                },
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
                 video: false,
             });
-
-            debugLog('Media', 'Microphone access granted');
+            log('Media', 'Microphone access granted');
+            
             localStreamRef.current = stream;
             setLocalStream(stream);
 
             // WebSocket 연결
             const wsUrl = getWebSocketUrl(`ws/projects/${projectId}/voice`);
-            debugLog('WebSocket', `Connecting to ${wsUrl}`);
+            log('WebSocket', `Connecting to ${wsUrl}`);
             
             const ws = new WebSocket(wsUrl);
             socketRef.current = ws;
 
             ws.onopen = () => {
-                debugLog('WebSocket', 'Connected successfully');
+                log('WebSocket', 'Connected!');
                 setIsConnected(true);
                 setActivePeerIds([userId]);
                 setIsConnecting(false);
                 
                 // Join 메시지 전송
-                const joinMessage = { type: 'join', senderId: userId };
-                ws.send(JSON.stringify(joinMessage));
-                debugLog('WebSocket', 'Sent join message', joinMessage);
+                const msg = { type: 'join', senderId: userId };
+                ws.send(JSON.stringify(msg));
+                log('WebSocket', 'Sent JOIN message', msg);
             };
 
             ws.onmessage = async (event) => {
                 const data: SignalData = JSON.parse(event.data);
-                debugLog('WebSocket', `Received message: ${data.type}`, data);
+                log('WebSocket', `Received: ${data.type}`, { from: data.senderId, to: data.targetId });
 
-                // 자신에게 온 메시지가 아니면 무시 (targetId가 있는 경우)
+                // 자신에게 온 메시지가 아니면 무시
                 if (data.targetId && data.targetId !== userId) {
-                    debugLog('WebSocket', `Message not for me (target: ${data.targetId}), ignoring`);
+                    log('WebSocket', `Not for me (target=${data.targetId}), ignoring`);
                     return;
                 }
 
                 switch (data.type) {
                     case 'join':
-                        // 다른 사용자가 입장 -> 내가 Offer를 보냄
                         if (data.senderId !== userId) {
-                            debugLog('Signaling', `New peer joined: ${data.senderId}, I will send offer`);
-                            const pc = createPeerConnection(data.senderId, stream, true);
-                            if (pc) {
-                                await sendOffer(data.senderId, pc);
-                            }
+                            await handleJoin(data.senderId, stream);
                         }
                         break;
-                        
                     case 'offer':
-                        if (data.sdp) {
-                            await handleOffer(data.senderId, data.sdp, stream);
-                        }
+                        if (data.sdp) await handleOffer(data.senderId, data.sdp, stream);
                         break;
-                        
                     case 'answer':
-                        if (data.sdp) {
-                            await handleAnswer(data.senderId, data.sdp);
-                        }
+                        if (data.sdp) await handleAnswer(data.senderId, data.sdp);
                         break;
-                        
                     case 'ice':
-                        if (data.candidate) {
-                            await handleIce(data.senderId, data.candidate);
-                        }
+                        if (data.candidate) await handleIce(data.senderId, data.candidate);
                         break;
-                        
                     case 'user_left':
-                        debugLog('Signaling', `Peer ${data.senderId} left`);
-                        if (data.senderId && data.senderId !== -1) {
-                            closePeerConnection(data.senderId);
-                        }
+                        log('Signal', `Peer ${data.senderId} left`);
+                        if (data.senderId) closePeerConnection(data.senderId);
                         break;
-                        
-                    default:
-                        debugLog('WebSocket', `Unknown message type: ${data.type}`);
                 }
             };
 
-            ws.onerror = (error) => {
-                debugLog('WebSocket', 'Error occurred', error);
+            ws.onerror = (e) => {
+                log('WebSocket', 'Error', e);
                 setVoiceChatError('connection_failed', '서버 연결에 실패했습니다.');
                 cleanup();
             };
 
-            ws.onclose = (event) => {
-                debugLog('WebSocket', `Closed: code=${event.code}, reason=${event.reason}`);
+            ws.onclose = (e) => {
+                log('WebSocket', `Closed: code=${e.code}`);
                 cleanup();
             };
 
         } catch (err) {
-            console.error('Failed to join voice chat:', err);
+            console.error('Failed to join:', err);
             
             if (err instanceof DOMException) {
-                switch (err.name) {
-                    case 'NotAllowedError':
-                    case 'PermissionDeniedError':
-                        setVoiceChatError('permission_denied', '마이크 사용 권한이 거부되었습니다.');
-                        break;
-                    case 'NotFoundError':
-                    case 'DevicesNotFoundError':
-                        setVoiceChatError('not_supported', '마이크를 찾을 수 없습니다.');
-                        break;
-                    case 'NotReadableError':
-                    case 'TrackStartError':
-                        setVoiceChatError('not_supported', '마이크를 사용할 수 없습니다.');
-                        break;
-                    default:
-                        setVoiceChatError('unknown', '마이크 연결 중 오류가 발생했습니다.');
+                if (err.name === 'NotAllowedError') {
+                    setVoiceChatError('permission_denied', '마이크 권한이 거부되었습니다.');
+                } else if (err.name === 'NotFoundError') {
+                    setVoiceChatError('not_supported', '마이크를 찾을 수 없습니다.');
+                } else {
+                    setVoiceChatError('unknown', '마이크 연결 중 오류가 발생했습니다.');
                 }
             } else {
                 setVoiceChatError('unknown', '알 수 없는 오류가 발생했습니다.');
             }
-            
             cleanup();
         }
     }, [
-        projectId,
-        userId,
-        isConnected,
-        isConnecting,
-        cleanup,
-        clearError,
-        setVoiceChatError,
-        createPeerConnection,
-        sendOffer,
-        handleOffer,
-        handleAnswer,
-        handleIce,
-        closePeerConnection
+        projectId, userId, isConnected, isConnecting,
+        cleanup, clearError, setVoiceChatError,
+        handleJoin, handleOffer, handleAnswer, handleIce, closePeerConnection
     ]);
 
     // -------------------------------------------------------------------------
@@ -559,46 +469,33 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
     // -------------------------------------------------------------------------
 
     const toggleMute = useCallback(() => {
-        if (API_CONFIG.USE_MOCK) {
-            setIsMuted(prev => !prev);
-            return;
-        }
-
         if (localStreamRef.current) {
-            const audioTrack = localStreamRef.current.getAudioTracks()[0];
-            if (audioTrack) {
-                audioTrack.enabled = !audioTrack.enabled;
-                setIsMuted(!audioTrack.enabled);
-                debugLog('Audio', `Mute toggled: ${!audioTrack.enabled}`);
+            const track = localStreamRef.current.getAudioTracks()[0];
+            if (track) {
+                track.enabled = !track.enabled;
+                setIsMuted(!track.enabled);
+                log('Audio', `Mute: ${!track.enabled}`);
             }
         }
     }, []);
 
     const toggleDeafen = useCallback(() => {
-        if (API_CONFIG.USE_MOCK) {
-            setIsDeafened(prev => !prev);
-            return;
-        }
-
         const newState = !isDeafenedRef.current;
         isDeafenedRef.current = newState;
         setIsDeafened(newState);
-
-        Object.values(remoteAudiosRef.current).forEach((audio) => {
+        
+        Object.values(remoteAudiosRef.current).forEach(audio => {
             audio.muted = newState;
         });
-        
-        debugLog('Audio', `Deafen toggled: ${newState}`);
+        log('Audio', `Deafen: ${newState}`);
     }, []);
 
     // -------------------------------------------------------------------------
-    // Unmount Cleanup
+    // Cleanup on Unmount
     // -------------------------------------------------------------------------
 
     useEffect(() => {
-        return () => {
-            cleanup();
-        };
+        return () => cleanup();
     }, [cleanup]);
 
     return {

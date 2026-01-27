@@ -443,7 +443,7 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
     const handleConnectionUpdate = useCallback(async (connectionId: number, updates: Partial<Connection>) => {
         // 롤백용 스냅샷을 ref에서 캡처
         const previousConnections = [...connectionsRef.current];
-        
+
         setConnections(prev => prev.map(c =>
             c.id === connectionId ? { ...c, ...updates } : c
         ));
@@ -555,7 +555,8 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
 
     // 그룹 업데이트 - 새 그룹 생성 및 parent_id 변경 시 백엔드 동기화
     // 카드 귀속은 드래그 앤 드롭으로만 처리 (위치 기반 자동 귀속 제거)
-    const handleGroupsUpdate = useCallback(async (newGroups: Group[]) => {
+    // 🔧 [FIX] 그룹 생성 후 tasks의 column_id도 실제 ID로 교체
+    const handleGroupsUpdate = useCallback(async (newGroups: Group[]): Promise<Map<number, number>> => {
         // 1. 새로 추가된 그룹 찾기 (기존 groups에 없는 것)
         const existingIds = new Set(groups.map(g => g.id));
         const addedGroups = newGroups.filter(g => !existingIds.has(g.id));
@@ -565,6 +566,9 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
             const existingGroup = groups.find(eg => eg.id === g.id);
             return existingGroup && existingGroup.parentId !== g.parentId;
         });
+
+        // 임시 ID → 실제 ID 매핑 저장
+        const idMapping = new Map<number, number>();
 
         // 새 그룹이 있으면 백엔드에 컬럼 생성 (위치/크기 포함)
         for (const newGroup of addedGroups) {
@@ -581,13 +585,30 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
                 // 컬럼 목록에 추가
                 setColumns(prev => [...prev, newColumn]);
 
+                // ID 매핑 저장 (임시 ID → 실제 ID)
+                idMapping.set(newGroup.id, newColumn.id);
+
                 // 그룹 ID를 실제 컬럼 ID로 교체
                 newGroups = newGroups.map(g =>
                     g.id === newGroup.id ? { ...g, id: newColumn.id } : g
                 );
+
+                console.log(`[BoardScreen] 그룹 ID 매핑: ${newGroup.id} → ${newColumn.id}`);
             } catch (err) {
                 console.error('Failed to create column:', err);
             }
+        }
+
+        // 🔧 [FIX] tasks의 column_id도 실제 ID로 교체
+        if (idMapping.size > 0) {
+            setTasks(prev => prev.map(task => {
+                if (task.column_id && idMapping.has(task.column_id)) {
+                    const realId = idMapping.get(task.column_id)!;
+                    console.log(`[BoardScreen] 카드 ${task.id}의 column_id 교체: ${task.column_id} → ${realId}`);
+                    return { ...task, column_id: realId };
+                }
+                return task;
+            }));
         }
 
         // parent_id가 변경된 그룹들 백엔드에 업데이트
@@ -603,6 +624,9 @@ export const BoardScreen: React.FC<BoardScreenProps> = ({ project, onBack }) => 
         }
 
         setGroups(newGroups);
+
+        // 매핑 정보 반환 (BoardCanvas에서 Batch 업데이트 시 사용)
+        return idMapping;
     }, [groups, columns, project.id]);
 
     // =========================================

@@ -1074,7 +1074,9 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             e.stopPropagation();
             (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
-            const containedTasks = tasks
+            // [FIX] tasksRef.current 사용 - props의 tasks는 stale할 수 있음
+            const currentTasks = tasksRef.current;
+            const containedTasks = currentTasks
                 .filter(t => t.column_id === group.id)
                 .map(t => ({ id: t.id, initialX: t.x || 0, initialY: t.y || 0 }));
 
@@ -1083,8 +1085,13 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 .map(g => ({ id: g.id, initialX: g.x, initialY: g.y }));
 
             // [Race Condition Guard] 그룹 및 포함된 카드들 Lock
+            const childCardIds = containedTasks.map(t => t.id);
+            console.log(`[Guard] 🔒 Group drag start - Group ID: ${group.id}, Child cards: [${childCardIds.join(', ')}]`);
+
             lockEntity(group.id);
-            lockEntities(containedTasks.map(t => t.id));
+            if (childCardIds.length > 0) {
+                lockEntities(childCardIds);
+            }
 
             setGroupDragState({
                 id: group.id,
@@ -1293,6 +1300,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             // 그룹 드래그 - 절대 좌표 시스템!
             // 그룹 이동 시 그룹에 속한 카드들도 동일한 delta만큼 이동
             // 카드의 x, y는 절대 좌표이므로 함께 업데이트 필요
+            // [FIX] tasksRef.current 사용 - props의 tasks는 stale할 수 있음
             // =========================================
             const deltaX = e.clientX - groupDragState.startX;
             const deltaY = e.clientY - groupDragState.startY;
@@ -1319,8 +1327,11 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 return g;
             }));
 
-            // 그룹에 속한 카드들도 동일한 delta만큼 이동 (절대 좌표 시스템)
-            onTasksUpdate(tasks.map(t => {
+            // [FIX] 그룹에 속한 카드들도 동일한 delta만큼 이동 (절대 좌표 시스템)
+            // tasksRef.current를 사용하여 최신 상태 기반으로 업데이트
+            // 단, x, y는 드래그 시작 시점의 initialX, initialY + delta로 계산
+            const currentTasks = tasksRef.current;
+            onTasksUpdate(currentTasks.map(t => {
                 const containedTask = groupDragState.containedTaskIds.find(ct => ct.id === t.id);
                 if (containedTask) {
                     return {
@@ -1340,7 +1351,8 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 newX = Math.round(newX / 20) * 20;
                 newY = Math.round(newY / 20) * 20;
             }
-            onTasksUpdate(tasks.map(t => t.id === freeDragState.id ? { ...t, x: newX, y: newY } : t));
+            // [FIX] tasksRef.current 사용 - props의 tasks는 stale할 수 있음
+            onTasksUpdate(tasksRef.current.map(t => t.id === freeDragState.id ? { ...t, x: newX, y: newY } : t));
 
             // 자유 카드 드래그 시 그룹 하이라이트 처리
             const cardCenterX = newX + gridConfig.cardWidth / 2;

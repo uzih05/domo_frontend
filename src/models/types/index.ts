@@ -384,6 +384,28 @@ export interface VoiceChatState {
   activePeerIds: number[];
 }
 
+// 음성 채팅 참여자 정보 (Member와 매핑)
+export interface VoiceParticipant {
+  id: number;
+  name: string;
+  avatar?: string | null;
+  isSpeaking: boolean;
+  isMuted: boolean;
+  isCurrentUser: boolean;
+}
+
+// 음성 채팅 에러 타입
+export type VoiceChatErrorType = 
+  | 'permission_denied'
+  | 'not_supported'
+  | 'connection_failed'
+  | 'unknown';
+
+export interface VoiceChatError {
+  type: VoiceChatErrorType;
+  message: string;
+}
+
 // ============================================
 // 9. 게시판 (Community Board)
 // ============================================

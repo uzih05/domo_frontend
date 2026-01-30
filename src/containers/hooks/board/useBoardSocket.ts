@@ -25,16 +25,18 @@ import type {
 // 상수 정의
 // ============================================
 
-const RECONNECT_INTERVALS = [1000, 2000, 4000, 8000, 16000, 30000]; // 재연결 대기 시간 (점진적 증가)
+const RECONNECT_INTERVALS = [1000, 2000, 4000, 8000, 16000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 10;
-const HEARTBEAT_INTERVAL = 30000; // 30초마다 ping
+const HEARTBEAT_INTERVAL = 30000;
+
+const isDev = process.env.NODE_ENV === 'development';
 
 // ============================================
 // 타입 정의
 // ============================================
 
 interface UseBoardSocketOptions {
-  /** 프로젝트 ID */
+  /** 프로젝트 ID (WebSocket 연결 및 fallback용) */
   projectId: number;
   /** 현재 사용자 ID (본인 이벤트 필터링용) */
   currentUserId?: number;
@@ -114,9 +116,37 @@ function getFileType(filename: string): string {
 
 /**
  * 백엔드 Card 데이터를 프론트엔드 Task로 변환
+ *
+ * [Single Source of Truth]
+ * - 백엔드의 project_id를 우선 사용
+ * - fallbackProjectId는 project_id가 없을 때만 사용
+ * - 불일치 시 경고 로그 출력 (개발 환경에서만)
+ *
+ * @param card - 백엔드 WebSocket 데이터
+ * @param fallbackProjectId - project_id가 없을 때 사용할 fallback 값
  */
-function transformCardToTask(card: BackendCardSocketData, projectId: number): Task {
-  // 기본 상태 추론 (column_id가 없으면 todo)
+function transformCardToTask(card: BackendCardSocketData, fallbackProjectId: number): Task {
+  // [핵심 수정] 백엔드 project_id를 Single Source of Truth로 사용
+  const backendProjectId = card.project_id;
+  const resolvedBoardId = backendProjectId ?? fallbackProjectId;
+
+  // [방어적 코드] 데이터 불일치 감지
+  if (isDev) {
+    if (backendProjectId === undefined || backendProjectId === null) {
+      console.warn(
+          `[BoardSocket] Card ${card.id} is missing project_id. Using fallback: ${fallbackProjectId}`,
+          { card }
+      );
+    } else if (backendProjectId !== fallbackProjectId) {
+      console.warn(
+          `[BoardSocket] Card ${card.id} project_id mismatch: ` +
+          `backend=${backendProjectId}, expected=${fallbackProjectId}. ` +
+          `Using backend value as Single Source of Truth.`,
+          { card }
+      );
+    }
+  }
+
   const status: TaskStatus = 'todo';
 
   const assignees: Assignee[] = (card.assignees || []).map((user) => ({
@@ -129,8 +159,8 @@ function transformCardToTask(card: BackendCardSocketData, projectId: number): Ta
     id: file.id,
     name: file.filename,
     url: file.latest_version
-      ? `/api/files/download/${file.latest_version.id}`
-      : '#',
+        ? `/api/files/download/${file.latest_version.id}`
+        : '#',
     size: file.latest_version?.file_size || 0,
     type: getFileType(file.filename),
   }));
@@ -143,7 +173,7 @@ function transformCardToTask(card: BackendCardSocketData, projectId: number): Ta
     status,
     x: card.x || 0,
     y: card.y || 0,
-    boardId: projectId,
+    boardId: resolvedBoardId,  // [핵심] 백엔드 project_id 사용
     column_id: card.column_id ?? undefined,
     card_type: card.card_type,
     taskType: card.card_type === 'task' ? 0 : card.card_type === 'memo' ? 1 : undefined,
@@ -160,6 +190,9 @@ function transformCardToTask(card: BackendCardSocketData, projectId: number): Ta
 
 /**
  * 백엔드 Column 데이터를 프론트엔드 Column으로 변환
+ *
+ * [Single Source of Truth]
+ * - 백엔드의 project_id를 그대로 사용
  */
 function transformColumnToColumn(col: BackendColumnSocketData): Column {
   return {
@@ -167,7 +200,7 @@ function transformColumnToColumn(col: BackendColumnSocketData): Column {
     title: col.title,
     status: inferStatusFromColumn(col.title),
     order: col.order,
-    project_id: col.project_id,
+    project_id: col.project_id,  // [핵심] 백엔드 값 그대로 사용
     localX: col.local_x,
     localY: col.local_y,
     width: col.width,
@@ -181,13 +214,27 @@ function transformColumnToColumn(col: BackendColumnSocketData): Column {
 
 /**
  * 백엔드 Connection 데이터를 프론트엔드 Connection으로 변환
+ *
+ * [Single Source of Truth]
+ * - 백엔드의 board_id를 그대로 사용
+ * - 누락 시 0으로 설정하고 경고 로그
  */
-function transformConnectionToConnection(conn: BackendConnectionSocketData): Connection {
+function transformConnectionToConnection(conn: BackendConnectionSocketData, fallbackProjectId: number): Connection {
+  const resolvedBoardId = conn.board_id ?? fallbackProjectId;
+
+  // [방어적 코드] board_id 누락 감지
+  if (isDev && (conn.board_id === undefined || conn.board_id === null)) {
+    console.warn(
+        `[BoardSocket] Connection ${conn.id} is missing board_id. Using fallback: ${fallbackProjectId}`,
+        { conn }
+    );
+  }
+
   return {
     id: conn.id,
     from: conn.from ?? conn.from_card_id ?? 0,
     to: conn.to ?? conn.to_card_id ?? 0,
-    boardId: conn.board_id,
+    boardId: resolvedBoardId,  // [핵심] 백엔드 board_id 사용
     style: (conn.style as 'solid' | 'dashed') || 'solid',
     shape: (conn.shape as 'bezier' | 'straight') || 'bezier',
     sourceHandle: (conn.sourceHandle || conn.source_handle || 'right') as 'left' | 'right',
@@ -300,11 +347,14 @@ export function useBoardSocket(options: UseBoardSocketOptions): UseBoardSocketRe
         return;
       }
 
-      console.log(`[BoardSocket] Received: ${type}`, data);
+      if (isDev) {
+        console.log(`[BoardSocket] Received: ${type}`, data);
+      }
 
       switch (type) {
         case 'CARD_CREATED': {
           const cardData = data as BackendCardSocketData;
+          // [수정] projectId는 fallback으로만 사용
           const task = transformCardToTask(cardData, projectId);
           callbacksRef.current.onTaskCreated?.(task);
           break;
@@ -352,14 +402,15 @@ export function useBoardSocket(options: UseBoardSocketOptions): UseBoardSocketRe
 
         case 'CONNECTION_CREATED': {
           const connData = data as BackendConnectionSocketData;
-          const connection = transformConnectionToConnection(connData);
+          // [수정] projectId는 fallback으로만 사용
+          const connection = transformConnectionToConnection(connData, projectId);
           callbacksRef.current.onConnectionCreated?.(connection);
           break;
         }
 
         case 'CONNECTION_UPDATED': {
           const connData = data as BackendConnectionSocketData;
-          const connection = transformConnectionToConnection(connData);
+          const connection = transformConnectionToConnection(connData, projectId);
           callbacksRef.current.onConnectionUpdated?.(connection);
           break;
         }
@@ -383,7 +434,9 @@ export function useBoardSocket(options: UseBoardSocketOptions): UseBoardSocketRe
         }
 
         default:
-          console.warn(`[BoardSocket] Unknown event type: ${type}`);
+          if (isDev) {
+            console.warn(`[BoardSocket] Unknown event type: ${type}`);
+          }
       }
     } catch (error) {
       console.error('[BoardSocket] Failed to parse message:', error);
@@ -410,7 +463,9 @@ export function useBoardSocket(options: UseBoardSocketOptions): UseBoardSocketRe
 
     try {
       const wsUrl = getWebSocketUrl(`/api/ws/projects/${projectId}/board`);
-      console.log(`[BoardSocket] Connecting to ${wsUrl}`);
+      if (isDev) {
+        console.log(`[BoardSocket] Connecting to ${wsUrl}`);
+      }
 
       const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
@@ -418,7 +473,9 @@ export function useBoardSocket(options: UseBoardSocketOptions): UseBoardSocketRe
       ws.onopen = () => {
         if (!mountedRef.current) return;
 
-        console.log('[BoardSocket] Connected');
+        if (isDev) {
+          console.log('[BoardSocket] Connected');
+        }
         setConnectionState('connected');
         setReconnectAttempts(0);
         setLastError(null);
@@ -445,7 +502,9 @@ export function useBoardSocket(options: UseBoardSocketOptions): UseBoardSocketRe
       ws.onclose = (event) => {
         if (!mountedRef.current) return;
 
-        console.log(`[BoardSocket] Closed: code=${event.code}, reason=${event.reason}`);
+        if (isDev) {
+          console.log(`[BoardSocket] Closed: code=${event.code}, reason=${event.reason}`);
+        }
         clearTimers();
         socketRef.current = null;
 
@@ -488,7 +547,9 @@ export function useBoardSocket(options: UseBoardSocketOptions): UseBoardSocketRe
       }
 
       const delay = RECONNECT_INTERVALS[Math.min(nextAttempt - 1, RECONNECT_INTERVALS.length - 1)];
-      console.log(`[BoardSocket] Reconnecting in ${delay}ms (attempt ${nextAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
+      if (isDev) {
+        console.log(`[BoardSocket] Reconnecting in ${delay}ms (attempt ${nextAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
+      }
 
       reconnectTimeoutRef.current = setTimeout(() => {
         if (mountedRef.current && !isManualDisconnectRef.current) {
@@ -504,7 +565,9 @@ export function useBoardSocket(options: UseBoardSocketOptions): UseBoardSocketRe
    * 수동 연결 해제
    */
   const disconnect = useCallback(() => {
-    console.log('[BoardSocket] Manual disconnect');
+    if (isDev) {
+      console.log('[BoardSocket] Manual disconnect');
+    }
     isManualDisconnectRef.current = true;
     clearTimers();
 
@@ -520,7 +583,9 @@ export function useBoardSocket(options: UseBoardSocketOptions): UseBoardSocketRe
    * 수동 재연결
    */
   const reconnect = useCallback(() => {
-    console.log('[BoardSocket] Manual reconnect');
+    if (isDev) {
+      console.log('[BoardSocket] Manual reconnect');
+    }
     disconnect();
     setReconnectAttempts(0);
     isManualDisconnectRef.current = false;

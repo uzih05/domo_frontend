@@ -22,7 +22,10 @@ import {
     DRAG_THRESHOLD,
     DEFAULT_GRID_CONFIG,
     GridConfig,
+    indexToRelativePosition,
     indexToAbsolutePosition,
+    relativeToAbsolute,
+    absoluteToRelative,
     isPointInGroup,
 } from '@/src/models/constants/grid';
 import {
@@ -1300,10 +1303,9 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             setSelectedTaskIds(newSelectedIds);
         } else if (groupDragState) {
             // =========================================
-            // 그룹 드래그 - 절대 좌표 시스템!
-            // 그룹 이동 시 그룹에 속한 카드들도 동일한 delta만큼 이동
-            // 카드의 x, y는 절대 좌표이므로 함께 업데이트 필요
-            // [FIX] tasksRef.current 사용 - props의 tasks는 stale할 수 있음
+            // 그룹 드래그 - 상대 좌표 시스템!
+            // 카드는 그룹 내 상대 좌표를 저장하므로 그룹만 이동하면 됨
+            // 카드의 x, y는 그룹 기준 offset이므로 업데이트 불필요
             // =========================================
             const deltaX = e.clientX - groupDragState.startX;
             const deltaY = e.clientY - groupDragState.startY;
@@ -1317,7 +1319,7 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
             const effectiveDeltaX = newGroupX - groupDragState.initialGroupX;
             const effectiveDeltaY = newGroupY - groupDragState.initialGroupY;
 
-            // 그룹 위치 업데이트
+            // 그룹 위치만 업데이트 (카드는 상대 좌표이므로 업데이트 불필요)
             onGroupsUpdate(groups.map(g => {
                 if (g.id === groupDragState.id) {
                     return { ...g, x: newGroupX, y: newGroupY };
@@ -1330,21 +1332,9 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                 return g;
             }));
 
-            // [FIX] 그룹에 속한 카드들도 동일한 delta만큼 이동 (절대 좌표 시스템)
-            // tasksRef.current를 사용하여 최신 상태 기반으로 업데이트
-            // 단, x, y는 드래그 시작 시점의 initialX, initialY + delta로 계산
-            const currentTasks = tasksRef.current;
-            onTasksUpdate(currentTasks.map(t => {
-                const containedTask = groupDragState.containedTaskIds.find(ct => ct.id === t.id);
-                if (containedTask) {
-                    return {
-                        ...t,
-                        x: containedTask.initialX + effectiveDeltaX,
-                        y: containedTask.initialY + effectiveDeltaY,
-                    };
-                }
-                return t;
-            }));
+            // [상대 좌표 시스템] 카드 좌표 업데이트 불필요!
+            // 카드의 x, y는 그룹 내 상대 좌표이므로 그룹이 이동해도 변경하지 않음
+            // 렌더링 시 group.x + card.x로 절대 좌표 계산
         } else if (freeDragState) {
             const deltaX = e.clientX - freeDragState.startX;
             const deltaY = e.clientY - freeDragState.startY;
@@ -1448,31 +1438,28 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
 
                 if (targetGroup) {
                     // =========================================
-                    // 자유 카드 → 그룹 드롭: 그리드 정렬 적용
+                    // 자유 카드 → 그룹 드롭: 상대 좌표로 변환
                     // 그룹 내 마지막 위치에 배치
                     // =========================================
                     const groupCards = tasks.filter(t => t.column_id === targetGroup.id);
                     const newIndex = groupCards.length; // 마지막 위치
 
-                    // 중앙화된 함수로 그리드 좌표 계산
-                    const gridPos = indexToAbsolutePosition(newIndex, targetGroup.x, targetGroup.y, gridConfig);
+                    // 상대 좌표 계산 (그룹 내 offset)
+                    const relativePos = indexToRelativePosition(newIndex, gridConfig);
 
-                    // 그룹 안에 드롭됨 - column_id 설정 + 그리드 좌표로 변경
+                    // 그룹 안에 드롭됨 - column_id 설정 + 상대 좌표로 변경
                     onTasksUpdate(tasks.map(t =>
                         t.id === task.id
-                            ? { ...t, column_id: targetGroup.id, x: gridPos.x, y: gridPos.y }
+                            ? { ...t, column_id: targetGroup.id, x: relativePos.x, y: relativePos.y }
                             : t
                     ));
-                    // 큐에 등록 (그리드 좌표)
+                    // 큐에 등록 (상대 좌표)
                     queueCardChange(
                         'card-position',
                         task.id,
-                        { taskId: task.id, x: gridPos.x, y: gridPos.y, column_id: targetGroup.id },
+                        { taskId: task.id, x: relativePos.x, y: relativePos.y, column_id: targetGroup.id },
                         snapshot,
                         async (payload) => {
-                            // [FIX] usePendingSync의 batchApiCall을 사용하므로 여기서 API 호출 불필요
-                            // onTaskUpdate는 낙관적 업데이트를 위해 사용됨
-                            // 단, Batch 모드가 아닌 단건 모드이므로 API 호출 필요
                             await batchUpdateCardPositions([{
                                 id: payload.taskId,
                                 x: payload.x,
@@ -1571,37 +1558,9 @@ export const BoardCanvas: React.FC<BoardCanvasProps> = ({
                     );
                 }
 
-                // 그룹에 속한 카드들의 위치도 저장 (절대 좌표 시스템)
-                const effectiveDeltaX = draggedGroup.x - groupDragState.initialGroupX;
-                const effectiveDeltaY = draggedGroup.y - groupDragState.initialGroupY;
-
-                // 이동량이 있을 때만 카드 위치 저장
-                if (effectiveDeltaX !== 0 || effectiveDeltaY !== 0) {
-                    // [FIX] Batch 모드 사용 - 여러 카드를 한 번에 동기화
-                    const batchItems: Array<{
-                        entityId: number;
-                        payload: CardPositionPayload;
-                        snapshot: CardPositionSnapshot;
-                    }> = [];
-
-                    for (const containedTask of groupDragState.containedTaskIds) {
-                        const task = tasksRef.current.find(t => t.id === containedTask.id);
-                        if (task) {
-                            const newX = containedTask.initialX + effectiveDeltaX;
-                            const newY = containedTask.initialY + effectiveDeltaY;
-
-                            batchItems.push({
-                                entityId: task.id,
-                                payload: { taskId: task.id, x: newX, y: newY, column_id: task.column_id },
-                                snapshot: { x: containedTask.initialX, y: containedTask.initialY, column_id: task.column_id },
-                            });
-                        }
-                    }
-
-                    if (batchItems.length > 0) {
-                        queueBatchCardChange(batchItems);
-                    }
-                }
+                // [상대 좌표 시스템] 카드 위치 저장 불필요!
+                // 카드의 x, y는 그룹 내 상대 좌표이므로 그룹 이동 시 변경되지 않음
+                // 그룹 위치만 저장하면 됨 (N개 카드 → 1회 API 호출로 최적화)
             }
 
             // [Race Condition Guard] Lock 해제 전 대기 중인 변경사항 동기화

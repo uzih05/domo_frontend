@@ -64,14 +64,14 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
     const pcsRef = useRef<{ [key: number]: RTCPeerConnection }>({});
     const remoteAudiosRef = useRef<{ [key: number]: HTMLAudioElement }>({});
     const localStreamRef = useRef<MediaStream | null>(null);
-    
+
     // ICE candidate 큐 (remoteDescription 전에 도착한 candidate 저장)
     const iceQueues = useRef<{ [key: number]: RTCIceCandidateInit[] }>({});
 
     // -------------------------------------------------------------------------
     // Error Handling
     // -------------------------------------------------------------------------
-    
+
     const setVoiceChatError = useCallback((type: VoiceChatErrorType, message: string) => {
         log('Error', `${type}: ${message}`);
         setError({ type, message });
@@ -84,15 +84,15 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
     // -------------------------------------------------------------------------
     // ICE Queue Processing
     // -------------------------------------------------------------------------
-    
+
     const flushIceQueue = useCallback(async (peerId: number) => {
         const pc = pcsRef.current[peerId];
         const queue = iceQueues.current[peerId] || [];
-        
+
         if (!pc || queue.length === 0) return;
-        
+
         log('ICE', `Flushing ${queue.length} queued candidates for peer ${peerId}`);
-        
+
         for (const candidate of queue) {
             try {
                 await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -100,7 +100,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
                 console.error('Failed to add queued ICE:', e);
             }
         }
-        
+
         iceQueues.current[peerId] = [];
     }, []);
 
@@ -110,7 +110,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
 
     const closePeerConnection = useCallback((peerId: number) => {
         log('Peer', `Closing connection to peer ${peerId}`);
-        
+
         if (pcsRef.current[peerId]) {
             pcsRef.current[peerId].close();
             delete pcsRef.current[peerId];
@@ -121,7 +121,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
             delete remoteAudiosRef.current[peerId];
         }
         delete iceQueues.current[peerId];
-        
+
         setActivePeerIds(prev => prev.filter(id => id !== peerId));
     }, []);
 
@@ -133,7 +133,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
         }
 
         log('Peer', `Creating new PeerConnection for peer ${peerId}`);
-        
+
         const pc = new RTCPeerConnection(ICE_SERVERS);
         pcsRef.current[peerId] = pc;
         iceQueues.current[peerId] = [];
@@ -154,14 +154,14 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
         // 원격 트랙 수신
         pc.ontrack = (event) => {
             log('Track', `Received remote track from peer ${peerId}`);
-            
+
             if (!remoteAudiosRef.current[peerId]) {
                 const audio = new Audio();
                 audio.srcObject = event.streams[0];
                 audio.autoplay = true;
                 audio.muted = isDeafenedRef.current;
                 remoteAudiosRef.current[peerId] = audio;
-                
+
                 audio.play().catch(() => {
                     log('Audio', 'Autoplay blocked, waiting for user interaction');
                     document.addEventListener('click', () => audio.play(), { once: true });
@@ -169,7 +169,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
             }
         };
 
-        // ICE Candidate 생성
+        // ICE Candidate 생성 -> targeted delivery (to field 포함)
         pc.onicecandidate = (event) => {
             if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
                 log('ICE', `Sending ICE candidate to peer ${peerId}`);
@@ -177,6 +177,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
                     type: 'ice',
                     senderId: userId,
                     targetId: peerId,
+                    to: peerId,
                     candidate: event.candidate.toJSON(),
                 }));
             }
@@ -205,20 +206,25 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
     // Signaling Handlers
     // -------------------------------------------------------------------------
 
-    const handleJoin = useCallback(async (senderId: number, stream: MediaStream) => {
-        log('Signal', `Peer ${senderId} joined, I will create offer`);
-        
-        const pc = createPeerConnection(senderId, stream);
-        
+    /**
+     * 기존 참여자가 신규 참여자에게 offer를 보내는 로직.
+     * user_joined 수신 시 또는 하위 호환용 join broadcast 수신 시 호출.
+     */
+    const handleUserJoined = useCallback(async (peerId: number, stream: MediaStream) => {
+        log('Signal', `Peer ${peerId} joined, I will create offer`);
+
+        const pc = createPeerConnection(peerId, stream);
+
         try {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            
-            log('Signal', `Sending OFFER to peer ${senderId}`);
+
+            log('Signal', `Sending OFFER to peer ${peerId}`);
             socketRef.current?.send(JSON.stringify({
                 type: 'offer',
                 senderId: userId,
-                targetId: senderId,
+                targetId: peerId,
+                to: peerId,
                 sdp: pc.localDescription,
             }));
         } catch (e) {
@@ -226,26 +232,57 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
         }
     }, [userId, createPeerConnection]);
 
+    /**
+     * 신규 입장자가 existing_users 목록을 받아 각 기존 참여자에게 offer를 보내는 로직.
+     */
+    const handleExistingUsers = useCallback(async (userIds: number[], stream: MediaStream) => {
+        log('Signal', `Received existing users list: [${userIds.join(', ')}]`);
+
+        for (const peerId of userIds) {
+            if (peerId === userId) continue;
+
+            log('Signal', `Creating offer for existing peer ${peerId}`);
+            const pc = createPeerConnection(peerId, stream);
+
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                log('Signal', `Sending OFFER to existing peer ${peerId}`);
+                socketRef.current?.send(JSON.stringify({
+                    type: 'offer',
+                    senderId: userId,
+                    targetId: peerId,
+                    to: peerId,
+                    sdp: pc.localDescription,
+                }));
+            } catch (e) {
+                console.error(`Failed to create offer for peer ${peerId}:`, e);
+            }
+        }
+    }, [userId, createPeerConnection]);
+
     const handleOffer = useCallback(async (senderId: number, sdp: RTCSessionDescriptionInit, stream: MediaStream) => {
         log('Signal', `Received OFFER from peer ${senderId}`);
-        
+
         const pc = createPeerConnection(senderId, stream);
-        
+
         try {
             await pc.setRemoteDescription(new RTCSessionDescription(sdp));
             log('Signal', `Set remote description (offer) for peer ${senderId}`);
-            
+
             // 큐에 있던 ICE candidate 처리
             await flushIceQueue(senderId);
-            
+
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            
+
             log('Signal', `Sending ANSWER to peer ${senderId}`);
             socketRef.current?.send(JSON.stringify({
                 type: 'answer',
                 senderId: userId,
                 targetId: senderId,
+                to: senderId,
                 sdp: pc.localDescription,
             }));
         } catch (e) {
@@ -255,17 +292,17 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
 
     const handleAnswer = useCallback(async (senderId: number, sdp: RTCSessionDescriptionInit) => {
         log('Signal', `Received ANSWER from peer ${senderId}`);
-        
+
         const pc = pcsRef.current[senderId];
         if (!pc) {
             log('Signal', `No PeerConnection for peer ${senderId}, ignoring answer`);
             return;
         }
-        
+
         try {
             await pc.setRemoteDescription(new RTCSessionDescription(sdp));
             log('Signal', `Set remote description (answer) for peer ${senderId}`);
-            
+
             // 큐에 있던 ICE candidate 처리
             await flushIceQueue(senderId);
         } catch (e) {
@@ -275,9 +312,9 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
 
     const handleIce = useCallback(async (senderId: number, candidate: RTCIceCandidateInit) => {
         log('ICE', `Received ICE candidate from peer ${senderId}`);
-        
+
         const pc = pcsRef.current[senderId];
-        
+
         // PeerConnection이 없거나 remoteDescription이 없으면 큐에 저장
         if (!pc || !pc.remoteDescription) {
             log('ICE', `Queuing ICE candidate for peer ${senderId} (no remote description yet)`);
@@ -287,7 +324,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
             iceQueues.current[senderId].push(candidate);
             return;
         }
-        
+
         try {
             await pc.addIceCandidate(new RTCIceCandidate(candidate));
             log('ICE', `Added ICE candidate for peer ${senderId}`);
@@ -302,7 +339,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
 
     const cleanup = useCallback(() => {
         log('Cleanup', 'Cleaning up voice chat...');
-        
+
         setIsConnected(false);
         setIsMuted(false);
         setIsDeafened(false);
@@ -327,14 +364,14 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
             remoteAudiosRef.current[peerId]?.pause();
             delete remoteAudiosRef.current[peerId];
         });
-        
+
         iceQueues.current = {};
 
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => track.stop());
             localStreamRef.current = null;
         }
-        
+
         log('Cleanup', 'Done');
     }, []);
 
@@ -376,14 +413,14 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
                 video: false,
             });
             log('Media', 'Microphone access granted');
-            
+
             localStreamRef.current = stream;
             setLocalStream(stream);
 
             // WebSocket 연결
             const wsUrl = getWebSocketUrl(`ws/projects/${projectId}/voice`);
             log('WebSocket', `Connecting to ${wsUrl}`);
-            
+
             const ws = new WebSocket(wsUrl);
             socketRef.current = ws;
 
@@ -392,7 +429,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
                 setIsConnected(true);
                 setActivePeerIds([userId]);
                 setIsConnecting(false);
-                
+
                 // Join 메시지 전송
                 const msg = { type: 'join', senderId: userId };
                 ws.send(JSON.stringify(msg));
@@ -401,32 +438,65 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
 
             ws.onmessage = async (event) => {
                 const data: SignalData = JSON.parse(event.data);
-                log('WebSocket', `Received: ${data.type}`, { from: data.senderId, to: data.targetId });
+                log('WebSocket', `Received: ${data.type}`, {
+                    from: data.senderId ?? data.userId,
+                    to: data.targetId ?? data.to,
+                    users: data.users,
+                });
 
-                // 자신에게 온 메시지가 아니면 무시
-                if (data.targetId && data.targetId !== userId) {
-                    log('WebSocket', `Not for me (target=${data.targetId}), ignoring`);
+                // 자신에게 온 메시지가 아니면 무시 (targetId 또는 to 기반)
+                const intendedTarget = data.targetId ?? data.to;
+                if (intendedTarget && intendedTarget !== userId) {
+                    log('WebSocket', `Not for me (target=${intendedTarget}), ignoring`);
                     return;
                 }
 
+                // 발신자 ID 결정 (senderId 우선, 없으면 userId)
+                const peerId = data.senderId ?? data.userId;
+
                 switch (data.type) {
-                    case 'join':
-                        if (data.senderId !== userId) {
-                            await handleJoin(data.senderId, stream);
+                    // 백엔드 신규 프로토콜: 기존 참여자 목록 수신 (신규 입장자만 받음)
+                    case 'existing_users':
+                        if (data.users && data.users.length > 0) {
+                            await handleExistingUsers(data.users, stream);
                         }
                         break;
+
+                    // 백엔드 신규 프로토콜: 새 참여자 입장 알림 (기존 참여자가 받음)
+                    case 'user_joined':
+                        if (peerId && peerId !== userId) {
+                            await handleUserJoined(peerId, stream);
+                        }
+                        break;
+
+                    // 하위 호환: 기존 broadcast 방식 join
+                    case 'join':
+                        if (peerId && peerId !== userId) {
+                            await handleUserJoined(peerId, stream);
+                        }
+                        break;
+
                     case 'offer':
-                        if (data.sdp) await handleOffer(data.senderId, data.sdp, stream);
+                        if (peerId && data.sdp) {
+                            await handleOffer(peerId, data.sdp, stream);
+                        }
                         break;
+
                     case 'answer':
-                        if (data.sdp) await handleAnswer(data.senderId, data.sdp);
+                        if (peerId && data.sdp) {
+                            await handleAnswer(peerId, data.sdp);
+                        }
                         break;
+
                     case 'ice':
-                        if (data.candidate) await handleIce(data.senderId, data.candidate);
+                        if (peerId && data.candidate) {
+                            await handleIce(peerId, data.candidate);
+                        }
                         break;
+
                     case 'user_left':
-                        log('Signal', `Peer ${data.senderId} left`);
-                        if (data.senderId) closePeerConnection(data.senderId);
+                        log('Signal', `Peer ${peerId} left`);
+                        if (peerId) closePeerConnection(peerId);
                         break;
                 }
             };
@@ -444,7 +514,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
 
         } catch (err) {
             console.error('Failed to join:', err);
-            
+
             if (err instanceof DOMException) {
                 if (err.name === 'NotAllowedError') {
                     setVoiceChatError('permission_denied', '마이크 권한이 거부되었습니다.');
@@ -461,7 +531,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
     }, [
         projectId, userId, isConnected, isConnecting,
         cleanup, clearError, setVoiceChatError,
-        handleJoin, handleOffer, handleAnswer, handleIce, closePeerConnection
+        handleUserJoined, handleExistingUsers, handleOffer, handleAnswer, handleIce, closePeerConnection
     ]);
 
     // -------------------------------------------------------------------------
@@ -483,7 +553,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
         const newState = !isDeafenedRef.current;
         isDeafenedRef.current = newState;
         setIsDeafened(newState);
-        
+
         Object.values(remoteAudiosRef.current).forEach(audio => {
             audio.muted = newState;
         });

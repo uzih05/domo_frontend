@@ -286,9 +286,15 @@ declare global {
 // ============================================
 
 export interface SignalData {
-  type: 'join' | 'offer' | 'answer' | 'ice' | 'user_left';
-  senderId: number;
+  type: 'join' | 'offer' | 'answer' | 'ice' | 'user_left' | 'user_joined' | 'existing_users';
+  senderId?: number;
   targetId?: number;
+  /** 백엔드 targeted delivery용 수신자 ID */
+  to?: number;
+  /** 백엔드 user_joined / user_left 에서 사용하는 발신자 ID */
+  userId?: number;
+  /** existing_users 응답: 현재 방에 있는 참여자 ID 목록 */
+  users?: number[];
   sdp?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
 }

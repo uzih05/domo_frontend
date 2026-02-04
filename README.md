@@ -1,6 +1,6 @@
 # DOMO - Collaborative Workspace Platform
 
-캔버스 기반의 실시간 협업 워크스페이스. 태스크 보드, 파일 공유, 음성 채팅을 단일 인터페이스로 제공한다.
+캔버스 기반의 실시간 협업 워크스페이스. 태스크 보드, 파일 공유, 실시간 채팅, 음성 채팅을 단일 인터페이스로 제공한다.
 
 ---
 
@@ -35,11 +35,11 @@
 
 | Metric | Value |
 |--------|-------|
-| TypeScript 파일 | 64개 |
-| 총 코드 라인 | 16,498줄 |
-| containers/ | 13개 |
-| views/ | 28개 |
-| models/ | 19개 |
+| TypeScript 파일 | 81개 |
+| 총 코드 라인 | 17,852줄 |
+| containers/ | 18개 |
+| views/ | 37개 |
+| models/ | 21개 |
 
 ---
 
@@ -56,7 +56,7 @@ npm -v
 
 ```bash
 git clone <repository-url>
-cd domo_front
+cd domo_frontend
 npm install
 ```
 
@@ -66,15 +66,16 @@ npm install
 
 ```bash
 NEXT_PUBLIC_API_URL=https://api.example.com
-NEXT_PUBLIC_WS_URL=wss://ws.example.com
 NEXT_PUBLIC_USE_MOCK=true
 ```
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_API_URL` | Yes | FastAPI 백엔드 엔드포인트 |
-| `NEXT_PUBLIC_WS_URL` | No | WebSocket 시그널링 서버 |
+| `NEXT_PUBLIC_API_URL` | Yes | FastAPI 백엔드 엔드포인트 (WebSocket URL도 여기서 파생) |
 | `NEXT_PUBLIC_USE_MOCK` | No | Mock 데이터 사용 여부 |
+| `API_URL` | No | Next.js rewrite 전용 서버사이드 변수 (미지정 시 `NEXT_PUBLIC_API_URL` 사용) |
+
+> `NEXT_PUBLIC_WS_URL`은 더 이상 사용하지 않는다. WebSocket URL은 `NEXT_PUBLIC_API_URL`에서 `getWebSocketUrl()` 헬퍼를 통해 자동 파생된다.
 
 ### Commands
 
@@ -94,6 +95,9 @@ npx tsc --noEmit # 타입 검사
 
 ```
 app/                    Entry Point (Next.js App Router)
+    |
+lib/                    Shared Infra
+    |-- contexts/       React Context (UserProvider)
     |
 containers/             Logic Layer
     |-- screens/        화면 단위 컨트롤러
@@ -116,52 +120,98 @@ src/
 |   |-- page.tsx                메인 라우트
 |   |-- layout.tsx              루트 레이아웃
 |   |-- globals.css             전역 스타일
+|   |-- invite/
+|       |-- [token]/
+|           |-- page.tsx        워크스페이스 초대 수락
+|
+|-- lib/
+|   |-- contexts/
+|   |   |-- UserContext.tsx         유저 상태 Context (51 lines)
+|   |-- api/
+|       |-- mock-data.ts           Mock 데이터 (309 lines)
 |
 |-- containers/
 |   |-- screens/
-|   |   |-- BoardScreen.tsx         메인 보드 (944 lines)
-|   |   |-- ProjectSelectScreen.tsx 프로젝트 선택 (837 lines)
-|   |   |-- WorkspaceListScreen.tsx 워크스페이스 목록 (421 lines)
+|   |   |-- BoardScreen.tsx         메인 보드 (702 lines)
+|   |   |-- ProjectSelectScreen.tsx 프로젝트 선택 (785 lines)
+|   |   |-- WorkspaceListScreen.tsx 워크스페이스 목록 (381 lines)
+|   |   |-- InviteAcceptScreen.tsx  초대 수락 (334 lines)
 |   |   |-- LoginScreen.tsx         로그인
 |   |   |-- SignupScreen.tsx        회원가입
 |   |   |-- VerifyEmailScreen.tsx   이메일 인증
+|   |   |-- VerifySuccessScreen.tsx 인증 완료
 |   |
 |   |-- hooks/
 |       |-- common/
-|       |   |-- usePendingSync.ts   Optimistic UI (694 lines)
-|       |   |-- useVoiceChat.ts     WebRTC 음성채팅 (313 lines)
+|       |   |-- usePendingSync.ts   Optimistic UI (581 lines)
+|       |   |-- useVoiceChat.ts     WebRTC 음성채팅 (482 lines)
+|       |   |-- useAudioAnalyser.ts 오디오 시각화 (166 lines)
 |       |-- board/
-|           |-- useSortableGrid.ts  드래그앤드롭 + 상대좌표 (581 lines)
+|       |   |-- useSortableGrid.ts  드래그앤드롭 + 상대좌표 (630 lines)
+|       |   |-- useBoardSocket.ts   보드 실시간 동기화 (551 lines)
+|       |-- chat/
+|           |-- useChatSocket.ts    채팅 WebSocket (146 lines)
 |
 |-- views/
 |   |-- board/
-|   |   |-- BoardCanvas.tsx         메인 캔버스 (1953 lines)
-|   |   |-- SortableGroup.tsx       그룹 컴포넌트 (321 lines)
-|   |   |-- SyncStatusIndicator.tsx 동기화 상태
+|   |   |-- BoardCanvas.tsx         메인 캔버스 (1754 lines)
+|   |   |-- SortableGroup.tsx       그룹 컴포넌트 (297 lines)
+|   |   |-- SyncStatusIndicator.tsx 동기화 상태 (257 lines)
 |   |-- task/
-|   |   |-- TaskCard.tsx            태스크 카드 (534 lines)
-|   |   |-- TaskDetailModal.tsx     태스크 상세 (609 lines)
+|   |   |-- TaskCard.tsx            태스크 카드 (492 lines)
+|   |   |-- TaskDetailModal.tsx     태스크 상세 + 파일 첨부 (663 lines)
+|   |-- chat/
+|   |   |-- ChatModal.tsx           플로팅 채팅 모달 (206 lines)
+|   |   |-- ChatView.tsx            전체화면 채팅 뷰 (189 lines)
+|   |-- voice/
+|   |   |-- VoiceChatModal.tsx      음성채팅 모달 (302 lines)
+|   |   |-- VoiceControls.tsx       음성채팅 컨트롤 (119 lines)
+|   |   |-- VoiceParticipant.tsx    참여자 표시 (116 lines)
 |   |-- calendar/
+|   |   |-- CalendarView.tsx        캘린더 뷰 (89 lines)
 |   |-- timeline/
+|   |   |-- TimelineView.tsx        타임라인 뷰 (156 lines)
 |   |-- profile/
+|   |   |-- ProfileCard.tsx         프로필 카드 (163 lines)
+|   |   |-- MyPageView.tsx          마이페이지 (70 lines)
+|   |   |-- SettingsView.tsx        설정 화면 (312 lines)
+|   |   |-- ActivityList.tsx        활동 내역 (67 lines)
 |   |-- dock/
+|   |   |-- Dock.tsx                하단 독 (362 lines)
+|   |   |-- DockButton.tsx          독 버튼 (41 lines)
+|   |   |-- FileListPanel.tsx       파일 목록 패널 (254 lines)
 |   |-- community/
+|   |   |-- CommunityBoard.tsx      커뮤니티 보드 (175 lines)
+|   |   |-- PostList.tsx            게시물 목록 (199 lines)
+|   |   |-- PostDetail.tsx          게시물 상세 (357 lines)
+|   |   |-- PostWriter.tsx          게시물 작성 (161 lines)
+|   |-- workspace/
+|   |   |-- InviteModal.tsx         초대 모달 (316 lines)
 |   |-- common/
+|       |-- FileVersionDropdown.tsx 파일 버전 선택 (233 lines)
+|       |-- Mascot.tsx              마스코트 (25 lines)
 |
 |-- models/
     |-- api/
-    |   |-- config.ts               API 설정
-    |   |-- board.ts                보드 API + 좌표 정수화 (1156 lines)
-    |   |-- workspace.ts            워크스페이스 API (568 lines)
-    |   |-- auth.ts, user.ts, file.ts, post.ts, activity.ts, schedule.ts
-    |   |-- mappers.ts              응답 변환 (328 lines)
-    |   |-- mock-data.ts            Mock 데이터 (603 lines)
+    |   |-- config.ts               API 설정 + WebSocket URL 변환 (139 lines)
+    |   |-- board.ts                보드 API + 좌표 정수화 (1108 lines)
+    |   |-- workspace.ts            워크스페이스 API (526 lines)
+    |   |-- chat.ts                 채팅 API (33 lines)
+    |   |-- auth.ts                 인증 API
+    |   |-- user.ts                 사용자 API
+    |   |-- file.ts                 파일 API
+    |   |-- post.ts                 게시물 API
+    |   |-- activity.ts             활동 API
+    |   |-- schedule.ts             일정 API
+    |   |-- mappers.ts              응답 변환 (51 lines)
+    |   |-- mock-data.ts            Mock 데이터 (540 lines)
     |-- types/
-    |   |-- index.ts                타입 정의 + 좌표 문서화 (534 lines)
+    |   |-- index.ts                타입 정의 + 좌표 문서화 (469 lines)
     |-- constants/
-    |   |-- grid.ts                 그리드 상수 + 좌표 변환 유틸 (346 lines)
+    |   |-- grid.ts                 그리드 상수 + 좌표 변환 유틸 (347 lines)
     |-- utils/
-        |-- groupLayout.ts          그룹 레이아웃 계산 (382 lines)
+        |-- groupLayout.ts          그룹 레이아웃 계산 (342 lines)
+        |-- caseConverter.ts        camelCase ↔ snake_case 변환 (65 lines)
         |-- canvas.ts, image.ts
 ```
 
@@ -170,7 +220,7 @@ src/
 ```
 app/page.tsx
     |
-    |-- [인증 전] LoginScreen / SignupScreen
+    |-- [인증 전] LoginScreen / SignupScreen / VerifyEmailScreen / VerifySuccessScreen
     |
     |-- [인증 후] WorkspaceListScreen --> getWorkspaces()
     |
@@ -184,6 +234,40 @@ app/page.tsx
             |-- BoardCanvas
                     |-- usePendingSync (Optimistic UI, Batch API)
                     |-- useSortableGrid (Drag & Drop, Relative Coordinates)
+                    |-- useBoardSocket (실시간 보드 동기화)
+                    |
+                    |-- ChatView / ChatModal
+                    |       |-- useChatSocket (실시간 채팅)
+                    |
+                    |-- VoiceChatModal
+                            |-- useVoiceChat (WebRTC 음성채팅)
+                            |-- useAudioAnalyser (오디오 시각화)
+
+app/invite/[token]/page.tsx
+    |-- InviteAcceptScreen --> getInvitationInfo(), acceptInvitation()
+```
+
+### 3.4 Real-time Connections
+
+세 가지 독립적인 WebSocket 연결을 운영한다. 모든 경로는 `/api/ws` 접두사를 사용한다.
+
+| Connection | Path | Protocol | Description |
+|------------|------|----------|-------------|
+| Board Sync | `/api/ws/projects/{id}/board` | WebSocket | 카드/그룹/연결선 실시간 동기화 |
+| Chat | `/api/ws/projects/{id}/chat` | WebSocket | 프로젝트 채팅 메시지 |
+| Voice | `/api/ws/projects/{id}/voice` | WebSocket + WebRTC | 음성채팅 시그널링 |
+
+공통 기능:
+- Heartbeat (30초 간격)
+- Reconnection (지수 백오프, 최대 10회)
+- `getWebSocketUrl()` 헬퍼로 HTTP/HTTPS → WS/WSS 프로토콜 자동 변환
+
+### 3.5 ViewMode
+
+```typescript
+type ViewMode = 'dashboard' | 'inbox' | 'planner' | 'board'
+             | 'calendar' | 'timeline' | 'profile' | 'settings'
+             | 'community' | 'chat';
 ```
 
 ---
@@ -322,7 +406,7 @@ normalizeCoordinates(x, y) → { x: Math.round(x), y: Math.round(y) }
 ```typescript
 // BoardCanvas.tsx - 그룹 드래그 중
 // 카드 좌표 업데이트 불필요! 그룹 위치만 변경
-onGroupsUpdate(groups.map(g => 
+onGroupsUpdate(groups.map(g =>
   g.id === groupId ? { ...g, x: newX, y: newY } : g
 ));
 ```
@@ -336,7 +420,7 @@ onGroupsUpdate(groups.map(g =>
 function isRelativeCoordinate(cardX, cardY, groupX, groupY, config) {
   // 카드 좌표가 그룹 좌표보다 크면 → 절대 좌표 (레거시)
   if (cardX >= groupX && cardY >= groupY) return false;
-  
+
   // 상대 좌표 범위 내면 → 상대 좌표
   return cardX <= maxRelativeX && cardY >= minRelativeY;
 }
@@ -431,7 +515,7 @@ import { TaskCard } from '@/src/views/task';
 
 ## 7. Quality Status
 
-### 7.1 Current Status (2026-01-30)
+### 7.1 Current Status (2026-02-04)
 
 | Check | Status |
 |-------|--------|
@@ -469,6 +553,7 @@ containers/ --> models/ 18개 (API 호출)
 | Batch API | PASS | `/cards/batch` 엔드포인트 정상 동작 |
 | 좌표 정수화 | PASS | 프론트엔드에서 전송 전 적용 |
 | 레거시 데이터 호환 | PASS | 휴리스틱 판단으로 자동 변환 |
+| WebSocket 경로 통일 | PASS | 모든 WS 경로 `/api/ws` 접두사 적용 |
 
 ---
 
@@ -485,13 +570,20 @@ containers/ --> models/ 18개 (API 호출)
 
 ### API Endpoints
 
+#### Board
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | /projects/{id}/board | 보드 전체 조회 (columns + cards) |
 | GET | /projects/{id}/cards | 프로젝트 카드 조회 |
+| GET | /cards/{id} | 단일 카드 조회 |
 | POST | /projects/{id}/cards | 카드 생성 |
 | PATCH | /cards/{id} | 카드 수정 |
 | PATCH | /cards/batch | 카드 일괄 수정 (좌표 정수화) |
 | DELETE | /cards/{id} | 카드 삭제 |
+| GET | /cards/{id}/comments | 카드 댓글 조회 |
+| POST | /cards/{id}/comments | 카드 댓글 생성 |
+| DELETE | /cards/comments/{id} | 카드 댓글 삭제 |
 | GET | /projects/{id}/columns | 그룹 조회 |
 | POST | /projects/{id}/columns | 그룹 생성 |
 | PATCH | /columns/{id} | 그룹 수정 |
@@ -500,6 +592,109 @@ containers/ --> models/ 18개 (API 호출)
 | POST | /cards/connections | 연결선 생성 |
 | PATCH | /cards/connections/{id} | 연결선 수정 |
 | DELETE | /cards/connections/{id} | 연결선 삭제 |
+
+#### Workspace
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /workspaces | 워크스페이스 목록 |
+| GET | /workspaces/{id} | 워크스페이스 상세 |
+| POST | /workspaces | 워크스페이스 생성 |
+| PATCH | /workspaces/{id} | 워크스페이스 수정 |
+| DELETE | /workspaces/{id} | 워크스페이스 삭제 |
+| GET | /workspaces/{id}/projects | 프로젝트 목록 |
+| POST | /workspaces/{id}/projects | 프로젝트 생성 |
+| PATCH | /projects/{id} | 프로젝트 수정 |
+| DELETE | /projects/{id} | 프로젝트 삭제 |
+| GET | /workspaces/{id}/members | 멤버 목록 |
+| POST | /workspaces/{id}/members | 멤버 추가 |
+| DELETE | /workspaces/{id}/members/{userId} | 멤버 제거 |
+| POST | /workspaces/{id}/invitations | 초대 생성 |
+| GET | /invitations/{token} | 초대 정보 조회 |
+| POST | /invitations/{token}/accept | 초대 수락 |
+| GET | /workspaces/{id}/online-members/stream | SSE: 온라인 멤버 스트림 |
+| GET | /workspaces/{id}/free-time | 공통 빈 시간 조회 |
+
+#### Chat
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /projects/{id}/chat | 채팅 메시지 조회 (?limit=&after_id=) |
+
+#### Auth
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /auth/login | 로그인 |
+| POST | /auth/signup | 회원가입 |
+| POST | /auth/verify | 이메일 인증 |
+| POST | /auth/logout | 로그아웃 |
+
+#### User
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /users/me | 내 정보 조회 |
+| PATCH | /users/me | 내 정보 수정 |
+| PATCH | /users/me/profile-image | 프로필 이미지 변경 |
+
+#### File
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /projects/{id}/files | 프로젝트 파일 조회 |
+| POST | /projects/{id}/files | 파일 업로드 (multipart) |
+| GET | /files/{id}/versions | 파일 버전 조회 |
+| DELETE | /files/{id} | 파일 삭제 |
+| POST | /cards/{cardId}/files/{fileId} | 카드에 파일 첨부 |
+| DELETE | /cards/{cardId}/files/{fileId} | 카드에서 파일 분리 |
+
+#### Post / Community
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /projects/{id}/posts | 프로젝트 게시물 조회 |
+| POST | /projects/{id}/posts | 프로젝트 게시물 생성 |
+| GET | /posts/{id} | 프로젝트 게시물 상세 |
+| PATCH | /posts/{id} | 프로젝트 게시물 수정 |
+| DELETE | /posts/{id} | 프로젝트 게시물 삭제 |
+| POST | /posts/{id}/comments | 프로젝트 댓글 생성 |
+| DELETE | /posts/comments/{id} | 프로젝트 댓글 삭제 |
+| GET | /community | 커뮤니티 게시물 조회 |
+| POST | /community | 커뮤니티 게시물 생성 (multipart) |
+| GET | /community/{id} | 커뮤니티 게시물 상세 |
+| PATCH | /community/{id} | 커뮤니티 게시물 수정 |
+| DELETE | /community/{id} | 커뮤니티 게시물 삭제 |
+| POST | /community/{id}/comments | 커뮤니티 댓글 생성 |
+| DELETE | /community/comments/{id} | 커뮤니티 댓글 삭제 |
+
+#### Schedule
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /schedules/me | 내 일정 조회 |
+| POST | /schedules | 일정 생성 |
+| PATCH | /schedules/{id} | 일정 수정 |
+| DELETE | /schedules/{id} | 일정 삭제 |
+| GET | /projects/{id}/events | 프로젝트 이벤트 조회 |
+| POST | /projects/{id}/events | 프로젝트 이벤트 생성 |
+| PATCH | /projects/events/{id} | 프로젝트 이벤트 수정 |
+| DELETE | /events/{id} | 이벤트 삭제 |
+
+#### Activity
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /users/me/activities | 내 활동 조회 |
+| GET | /workspaces/{id}/activities | 워크스페이스 활동 조회 |
+
+#### WebSocket
+
+| Path | Description |
+|------|-------------|
+| /api/ws/projects/{id}/board | 보드 실시간 동기화 |
+| /api/ws/projects/{id}/chat | 프로젝트 채팅 |
+| /api/ws/projects/{id}/voice | 음성채팅 시그널링 (WebRTC) |
 
 ### Troubleshooting
 
@@ -529,6 +724,11 @@ npm run lint -- --fix
 - 레거시 절대 좌표 데이터인지 확인
 - `cardPositions` 계산 결과 확인 (개발자 도구)
 
+WebSocket 연결 실패 시:
+- `config.ts`의 `getWebSocketUrl()` 반환값 확인
+- `NEXT_PUBLIC_API_URL`에 후행 슬래시 중복 여부 확인
+- 브라우저 개발자 도구 Network > WS 탭에서 경로 확인
+
 ---
 
-Last Updated: 2026-01-30
+Last Updated: 2026-02-04

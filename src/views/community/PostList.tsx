@@ -61,19 +61,19 @@ export const PostList: React.FC<PostListProps> = ({ posts, onPostClick, layout =
                     <div
                         key={post.id}
                         onClick={() => onPostClick(post.id)}
-                        className="group flex flex-col bg-white dark:bg-[#1E212B] rounded-2xl overflow-hidden border border-gray-100 dark:border-white/5 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer"
+                        className="group flex flex-col bg-white dark:bg-[#1E212B] rounded-2xl overflow-hidden border border-gray-100 dark:border-white/5 transition-all duration-300 cursor-pointer"
                     >
                         {/* Card Image Area */}
                         <div className={`relative w-full aspect-[4/3] overflow-hidden ${post.image_url ? 'bg-gray-100 dark:bg-gray-800' : getGradient(post.id)} flex items-center justify-center`}>
                             {/* Bookmark Icon */}
                             <div className="absolute top-3 left-3 z-10">
-                                <div className="bg-white/90 dark:bg-black/50 p-1.5 rounded-md shadow-sm backdrop-blur-sm cursor-default hover:scale-110 transition-transform">
+                                <div className="bg-white/90 dark:bg-black/50 p-1.5 rounded-md shadow-sm backdrop-blur-sm cursor-default">
                                     <Bookmark size={16} className="text-blue-500 fill-blue-500" />
                                 </div>
                             </div>
 
                             {/* Image or Placeholder Content */}
-                            <div className="transform group-hover:scale-105 transition-transform duration-500 w-full h-full flex items-center justify-center">
+                            <div className="w-full h-full flex items-center justify-center">
                                 {post.image_url ? (
                                     <img src={getImageUrl(post.image_url)} alt={post.title} className="w-full h-full object-cover" />
                                 ) : (

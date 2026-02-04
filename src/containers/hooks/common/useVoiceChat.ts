@@ -413,7 +413,7 @@ export function useVoiceChat(projectId: number, userId: number): UseVoiceChatRet
             setLocalStream(stream);
 
             // WebSocket 연결
-            const wsUrl = getWebSocketUrl(`ws/projects/${projectId}/voice`);
+            const wsUrl = getWebSocketUrl(`/api/ws/projects/${projectId}/voice`);
             log('WebSocket', `Connecting to ${wsUrl}`);
 
             const ws = new WebSocket(wsUrl);

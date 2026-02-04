@@ -112,7 +112,7 @@ export const PostWriter: React.FC<PostWriterProps> = ({ projectId, mode, onCance
                         ) : (
                             <label
                                 htmlFor="image-upload"
-                                className="flex flex-col items-center justify-center w-full h-32 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-500/5 cursor-pointer transition-all group-hover:scale-[1.01]"
+                                className="flex flex-col items-center justify-center w-full h-32 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-500/5 cursor-pointer transition-all"
                             >
                                 <div className="flex flex-col items-center gap-2 text-gray-500 dark:text-gray-400 group-hover:text-blue-500">
                                     <Image size={32} />

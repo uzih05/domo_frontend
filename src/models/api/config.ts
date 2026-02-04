@@ -157,5 +157,11 @@ export function getWebSocketUrl(path: string): string {
     baseUrl = baseUrl.slice(0, -4);
   }
 
-  return `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+  // trailing slash 제거 (이중 슬래시 방지)
+  baseUrl = baseUrl.replace(/\/+$/, '');
+
+  // path 정규화 (선행 슬래시 보장 + 이중 슬래시 제거)
+  const normalizedPath = '/' + path.replace(/^\/+/, '');
+
+  return `${baseUrl}${normalizedPath}`;
 }
